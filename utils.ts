@@ -1,21 +1,54 @@
-import { GoogleGenAI } from "@google/genai";
-import { AIConfig } from "./types";
+import { GoogleGenAI, Modality } from "@google/genai";
+import { AIConfig, AudioConfig } from "./types";
 
 const cleanUrl = (url: string) => url ? url.replace(/\/+$/, "") : "";
 
-export const fetchModels = async (config: AIConfig) => {
+// Singleton AudioContext to prevent hitting browser limits (usually 6)
+let globalAudioCtx: AudioContext | null = null;
+export const getAudioContext = () => {
+    if (!globalAudioCtx) {
+        globalAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+    }
+    if (globalAudioCtx.state === 'suspended') {
+        globalAudioCtx.resume();
+    }
+    return globalAudioCtx;
+}
+
+export const fetchModels = async (config: AIConfig | AudioConfig, type: 'chat' | 'content' | 'audio' = 'chat') => {
   if (!config.key) throw new Error("Missing API Key");
 
+  let models: string[] = [];
+
   if (config.provider === 'gemini') {
-    // Basic hardcoded list for Gemini to avoid complex permissions/proxy issues in client
-    return ['gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.5-flash-latest'];
+    // Expanded hardcoded list for Gemini to include Audio/TTS models
+    models = [
+        'gemini-3-flash-preview', 
+        'gemini-3-pro-preview', 
+        'gemini-2.5-flash-latest',
+        'gemini-2.5-flash-preview-tts',
+        'gemini-2.5-flash-native-audio-preview-12-2025'
+    ];
   } else {
-    const res = await fetch(`${cleanUrl(config.baseUrl)}/models`, { 
-      headers: { "Authorization": `Bearer ${config.key}` } 
-    });
-    const data = await res.json();
-    return (Array.isArray(data.data) ? data.data : data).map((m: any) => m.id || m.model || m).sort();
+    try {
+        const res = await fetch(`${cleanUrl(config.baseUrl || "https://api.openai.com/v1")}/models`, { 
+            headers: { "Authorization": `Bearer ${config.key}` } 
+        });
+        if (!res.ok) throw new Error("Failed to fetch models");
+        const data = await res.json();
+        models = (Array.isArray(data.data) ? data.data : data).map((m: any) => m.id || m.model || m).sort();
+    } catch (e) {
+        throw new Error(`Fetch failed: ${(e as Error).message}`);
+    }
   }
+
+  // Filter based on type
+  if (type === 'audio') {
+      const audioKeywords = ['tts', 'audio', 'speech', 'realtime', 'live', 'voice', 'whisper', 'omni'];
+      return models.filter(m => audioKeywords.some(k => m.toLowerCase().includes(k)));
+  }
+
+  return models;
 };
 
 export const testConnection = async (config: AIConfig) => {
@@ -34,6 +67,100 @@ export const testConnection = async (config: AIConfig) => {
     });
     if (!res.ok) throw new Error("Request failed");
   }
+};
+
+export const playTTSPreview = async (config: AudioConfig, text: string = "Hello, this is a test.") => {
+    // 1. Browser TTS
+    if (config.provider === 'browser') {
+        return new Promise<void>((resolve, reject) => {
+            try {
+                window.speechSynthesis.cancel();
+                const u = new SpeechSynthesisUtterance(text);
+                const voices = window.speechSynthesis.getVoices();
+                const v = voices.find(v => v.voiceURI === config.voiceID);
+                if (v) u.voice = v;
+                u.lang = 'en-US';
+                u.onend = () => resolve();
+                u.onerror = (e) => reject(e);
+                window.speechSynthesis.speak(u);
+            } catch (e) { reject(e); }
+        });
+    }
+
+    if (!config.key) throw new Error("Missing API Key for Audio");
+
+    // 2. Gemini TTS
+    if (config.provider === 'gemini') {
+        const ai = new GoogleGenAI({ apiKey: config.key });
+        const response = await ai.models.generateContent({
+            model: config.model || "gemini-2.5-flash-preview-tts",
+            contents: { parts: [{ text }] },
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: config.voiceID || 'Puck' },
+                    },
+                },
+            },
+        });
+        
+        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (!base64Audio) throw new Error("No audio returned from Gemini");
+        
+        // Decode and Play
+        const binaryString = atob(base64Audio);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        
+        const ctx = getAudioContext();
+        const dataInt16 = new Int16Array(bytes.buffer);
+        // Create buffer: Gemini TTS usually returns 24kHz mono
+        const buffer = ctx.createBuffer(1, dataInt16.length, 24000);
+        const channelData = buffer.getChannelData(0);
+        
+        // Convert Int16 PCM to Float32
+        for (let i = 0; i < dataInt16.length; i++) {
+            channelData[i] = dataInt16[i] / 32768.0;
+        }
+        
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.start();
+        return new Promise<void>((resolve) => {
+             source.onended = () => resolve();
+        });
+    }
+
+    // 3. OpenAI / Custom TTS
+    if (config.provider === 'openai' || config.provider === 'custom') {
+        const baseUrl = config.baseUrl || "https://api.openai.com/v1";
+        const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/audio/speech`, { 
+            method: "POST", 
+            headers: { 
+                "Authorization": `Bearer ${config.key}`, 
+                "Content-Type": "application/json" 
+            }, 
+            body: JSON.stringify({ 
+                model: config.model || "tts-1", 
+                input: text, 
+                voice: config.voiceID || "alloy" 
+            }) 
+        });
+        if (!res.ok) {
+            const err = await res.text();
+            throw new Error(`TTS API Error: ${err}`);
+        }
+        const blob = await res.blob();
+        const audio = new Audio(URL.createObjectURL(blob));
+        audio.play();
+        return new Promise<void>((resolve) => {
+             audio.onended = () => resolve();
+        });
+    }
 };
 
 export const callLLM = async (

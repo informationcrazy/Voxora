@@ -43,12 +43,15 @@ export interface Topic {
 
 export interface Persona {
   name: string;
+  nameZh?: string;
   age: string;
   gender: string;
   nationality: string;
   profession: string;
+  professionZh?: string;
   personality: string;
   interests: string;
+  voiceId?: string;
 }
 
 export interface AIConfig {

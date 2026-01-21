@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Mic, Send, Volume2, Phone, PhoneOff, Activity } from 'lucide-react';
-import { Topic, Persona, AIConfig, AudioConfig, Message, Lang } from '../types';
-import { callLLM } from '../utils';
+import { ArrowLeft, Mic, Send, Volume2, Phone, PhoneOff, Activity, MicOff, Sparkles, MoreHorizontal } from 'lucide-react';
+import { Topic, Persona, AIConfig, AudioConfig, Message, Lang, LessonData } from '../types';
+import { callLLM, getAudioContext } from '../utils';
 import { GoogleGenAI, Modality, Blob, LiveServerMessage } from '@google/genai';
 
 interface ChatInterfaceProps {
@@ -10,6 +10,7 @@ interface ChatInterfaceProps {
   chatConfig: AIConfig;
   audioConfig: AudioConfig;
   initialMessage?: string;
+  lessonData?: LessonData | null;
   lang: Lang;
   t: (k: string) => string;
   onBack: () => void;
@@ -63,8 +64,78 @@ async function decodeAudioData(
     return buffer;
   }
 
+// Visualizer Component
+const AudioVisualizer = ({ isActive, analyser }: { isActive: boolean, analyser: AnalyserNode | null }) => {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    
+    useEffect(() => {
+        if (!canvasRef.current || !analyser || !isActive) return;
+        
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        let animationId: number;
+        
+        const draw = () => {
+            animationId = requestAnimationFrame(draw);
+            analyser.getByteFrequencyData(dataArray);
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const radius = 60; // Base radius matching the avatar
+            
+            // Draw circular visualizer
+            ctx.beginPath();
+            let sum = 0;
+            for(let i = 0; i < bufferLength; i++) {
+                 sum += dataArray[i];
+            }
+            const average = sum / bufferLength;
+            const scale = 1 + (average / 256) * 0.5;
+            
+            ctx.arc(centerX, centerY, radius * scale, 0, 2 * Math.PI);
+            ctx.strokeStyle = `rgba(74, 222, 128, ${average/255})`; // Green tint based on volume
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            
+            // Draw particles/bars
+            const bars = 30;
+            const step = (Math.PI * 2) / bars;
+            
+            for(let i = 0; i < bars; i++) {
+                const value = dataArray[i * 2] || 0;
+                const barHeight = (value / 255) * 40;
+                const angle = i * step;
+                
+                const x1 = centerX + Math.cos(angle) * (radius * scale + 5);
+                const y1 = centerY + Math.sin(angle) * (radius * scale + 5);
+                const x2 = centerX + Math.cos(angle) * (radius * scale + 5 + barHeight);
+                const y2 = centerY + Math.sin(angle) * (radius * scale + 5 + barHeight);
+                
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.strokeStyle = `rgba(99, 102, 241, ${value/255})`; // Indigo
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+        };
+        
+        draw();
+        
+        return () => cancelAnimationFrame(animationId);
+    }, [isActive, analyser]);
+
+    return <canvas ref={canvasRef} width={400} height={400} className="absolute inset-0 pointer-events-none z-0" />;
+};
+
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
-  topic, persona, chatConfig, audioConfig, initialMessage, lang, t, onBack 
+  topic, persona, chatConfig, audioConfig, initialMessage, lessonData, lang, t, onBack 
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -74,6 +145,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [liveStatus, setLiveStatus] = useState<string>('');
   const [isSpeechSupported, setIsSpeechSupported] = useState(false);
   
+  // Visual & Subtitle State
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const [liveTranscriptSource, setLiveTranscriptSource] = useState<'user' | 'ai'>('ai');
+  const [isAiSpeaking, setIsAiSpeaking] = useState(false);
+  const [userMicActive, setUserMicActive] = useState(false);
+  
+  // Audio Analysis
+  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const audioRef = useRef<HTMLAudioElement>(new Audio());
@@ -86,16 +166,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const processorRef = useRef<ScriptProcessorNode|null>(null);
   const nextStartTimeRef = useRef<number>(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const transcriptBufferRef = useRef<{user: string, ai: string, lastSource: 'user'|'ai'}>({user: '', ai: '', lastSource: 'user'});
 
   // Simulated Live (STT Loop)
   const isSimulatedLiveRef = useRef(false);
-  const silenceTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
     if (initialMessage && !isLiveMode) {
         setMessages([{ role: 'ai', textEn: initialMessage, textZh: '' }]);
         playAudio(initialMessage);
     }
+    // If no initial message but we have lesson data, trigger a greeting contextually?
+    // Not strictly necessary as the user usually speaks first, but we can have the persona introduce themselves.
   }, []);
 
   // Initialize Speech Recognition (Browser)
@@ -106,34 +188,45 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         recognitionRef.current = new SR();
         recognitionRef.current.lang = 'en-US';
         recognitionRef.current.continuous = false; // We manage restart manually for better control
-        recognitionRef.current.interimResults = false;
+        recognitionRef.current.interimResults = true; // Enable interim to show subtitles
         
         recognitionRef.current.onstart = () => {
             setIsListening(true);
-            if (isSimulatedLiveRef.current) setLiveStatus("Listening...");
+            if (isSimulatedLiveRef.current) {
+                 setLiveStatus("Listening...");
+                 setUserMicActive(true);
+            }
         };
         
         recognitionRef.current.onend = () => {
             setIsListening(false);
-            // If in simulated live mode and not thinking/speaking, restart listening?
-            // Actually, we restart after TTS ends or if silence.
-            // But if user stopped speaking, onresult is called.
-            // If no result (silence timeout), this might trigger.
+            setUserMicActive(false);
         };
 
         recognitionRef.current.onresult = (event: any) => {
-            const transcript = event.results[0][0].transcript;
+            const transcript = Array.from(event.results)
+                .map((result: any) => result[0].transcript)
+                .join('');
+            
             if (isSimulatedLiveRef.current) {
-                setLiveStatus("Thinking...");
-                handleSend(transcript); // Auto send in live mode
+                // Live subtitle update
+                setLiveTranscript(transcript);
+                setLiveTranscriptSource('user');
+                setIsAiSpeaking(false);
+
+                if (event.results[0].isFinal) {
+                    setLiveStatus("Thinking...");
+                    handleSend(transcript); 
+                }
             } else {
-                setInput(prev => (prev ? prev + ' ' : '') + transcript);
+                setInput(transcript); // For manual mode, just replace input
             }
         };
 
         recognitionRef.current.onerror = (event: any) => {
             console.error("Speech recognition error", event.error);
             setIsListening(false);
+            setUserMicActive(false);
         };
     }
   }, []);
@@ -152,6 +245,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
     }
+    setIsAiSpeaking(false);
   };
 
   const playAudio = async (text: string, onEnded?: () => void) => {
@@ -159,16 +253,23 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (isLiveMode && !isSimulatedLiveRef.current) return; // Don't play TTS if Native Live is active
 
     stopAudio();
+    setIsAiSpeaking(true);
 
-    // Setup onEnded for Audio Element
-    audioRef.current.onended = () => {
+    const handleEnded = () => {
+        setIsAiSpeaking(false);
         if (onEnded) onEnded();
     };
+
+    // Setup onEnded for Audio Element
+    audioRef.current.onended = handleEnded;
 
     // 1. Gemini TTS (Native)
     if (audioConfig.provider === 'gemini') {
         const apiKey = audioConfig.key || chatConfig.key;
-        if (!apiKey) return alert(t('error_missing_key'));
+        if (!apiKey) {
+            setIsAiSpeaking(false);
+            return alert(t('error_missing_key'));
+        }
 
         try {
             const ai = new GoogleGenAI({ apiKey });
@@ -193,23 +294,29 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 for (let i = 0; i < binaryString.length; i++) {
                     bytes[i] = binaryString.charCodeAt(i);
                 }
-                const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
+                const ctx = getAudioContext();
                 const audioBuffer = await decodeAudioData(bytes, ctx, 24000, 1);
                 const source = ctx.createBufferSource();
                 source.buffer = audioBuffer;
                 source.connect(ctx.destination);
-                source.onended = () => {
-                    if (onEnded) onEnded();
-                };
+                source.onended = handleEnded;
                 source.start();
+            } else {
+                handleEnded();
             }
-        } catch (e) { console.error("Gemini TTS Error", e); if(onEnded) onEnded(); }
-    }
+        } catch (e) { 
+            console.error("Gemini TTS Error", e); 
+            handleEnded();
+        }
+    } 
     // 2. OpenAI / Custom TTS (Generic Endpoint)
     else if (audioConfig.provider === 'openai' || audioConfig.provider === 'custom') {
         const baseUrl = audioConfig.baseUrl || "https://api.openai.com/v1";
         const apiKey = audioConfig.key;
-        if (!apiKey && audioConfig.provider === 'openai') return alert(t('tts_key_tip'));
+        if (!apiKey && audioConfig.provider === 'openai') {
+            setIsAiSpeaking(false);
+            return alert(t('tts_key_tip'));
+        }
 
         try {
             const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/audio/speech`, { 
@@ -228,7 +335,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             const blob = await res.blob();
             audioRef.current.src = URL.createObjectURL(blob);
             audioRef.current.play();
-        } catch (e) { console.error(e); if(onEnded) onEnded(); }
+        } catch (e) { 
+            console.error(e); 
+            handleEnded(); 
+        }
     } 
     // 3. Browser TTS (Fallback)
     else {
@@ -237,24 +347,69 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         const v = voices.find(v => v.voiceURI === audioConfig.voiceID);
         if (v) u.voice = v;
         u.lang = 'en-US';
-        u.onend = () => {
-            if (onEnded) onEnded();
-        }
+        u.onend = handleEnded;
         window.speechSynthesis.speak(u);
     }
   };
 
   const startLiveSession = async () => {
+    // --- Validation Start ---
+    const isGemini = chatConfig.provider === 'gemini';
+    
+    // Check Chat Provider Key (Required for both Native and Simulated)
+    if (!chatConfig.key) {
+         const msg = lang === 'zh' 
+            ? "⚠️ 无法启动\n\n缺少对话引擎 API Key。\n请前往【设置 -> 对话引擎】进行配置。"
+            : "⚠️ Cannot Start\n\nMissing Chat Engine API Key.\nPlease configure it in Settings -> Chat Engine.";
+        alert(msg);
+        return;
+    }
+
+    // Specific Gemini Check (Native Live)
+    // Note: Native Live uses a specific model hardcoded, so chatConfig.model doesn't matter as much, 
+    // but the key does.
+
+    // Specific Simulated Live Check (OpenAI/Others)
+    if (!isGemini) {
+        if (!isSpeechSupported) {
+            alert(lang === 'zh' ? "您的浏览器不支持语音识别，无法使用模拟通话。" : "Speech recognition is not supported in this browser.");
+            return;
+        }
+        // Warn if no TTS key for simulation (if not browser)
+        if (audioConfig.provider !== 'browser' && !audioConfig.key) {
+             const msg = lang === 'zh' 
+                ? "⚠️ 提示\n\n模拟通话模式下，选定的语音引擎需要 API Key。\n请在【设置 -> 语音引擎】中添加。"
+                : "⚠️ Note\n\nSelected Voice Engine requires an API Key for simulated live mode.\nPlease check Settings -> Voice Engine.";
+             alert(msg);
+             return;
+        }
+    }
+    // --- Validation End ---
+
     stopAudio();
     setIsLiveMode(true);
     setLiveStatus(t('live_connecting'));
+    setLiveTranscript('');
+    transcriptBufferRef.current = {user: '', ai: '', lastSource: 'user'};
+
+    // Build context-aware instructions
+    let contextInstructions = "";
+    if (lessonData) {
+        const vocabList = lessonData.vocabulary.map(v => v.en).join(', ');
+        const exprList = lessonData.expressions.map(e => e.en).join(', ');
+        contextInstructions = `
+        CONTEXT: The user is learning about "${topic.titleEn}".
+        TARGET VOCABULARY: ${vocabList}.
+        TARGET EXPRESSIONS: ${exprList}.
+        INSTRUCTION: Try to naturally use the target vocabulary and expressions in your responses. Correct the user gently if they misuse them.
+        `;
+    }
 
     // MODE A: Gemini Native Live (If Chat Provider is Gemini)
     if (chatConfig.provider === 'gemini') {
         isSimulatedLiveRef.current = false;
         const apiKey = chatConfig.key;
         if (!apiKey) {
-            alert("Gemini Chat Key required");
             stopLiveSession();
             return;
         }
@@ -264,40 +419,89 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             // Setup Audio Contexts
             const inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-            const outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+            const outputCtx = getAudioContext(); // Use singleton
             inputAudioCtxRef.current = inputCtx;
             outputAudioCtxRef.current = outputCtx;
             nextStartTimeRef.current = 0;
 
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
+            // VISUALIZER SETUP
+            const analyzerNode = inputCtx.createAnalyser();
+            analyzerNode.fftSize = 64;
+            setAnalyser(analyzerNode);
+
             const sessionPromise = ai.live.connect({
                 model: 'gemini-2.5-flash-native-audio-preview-12-2025',
                 callbacks: {
                     onopen: () => {
                         setLiveStatus(t('live_active'));
+                        setUserMicActive(true);
+                        
                         const source = inputCtx.createMediaStreamSource(stream);
+                        // Connect to visualizer
+                        source.connect(analyzerNode);
+                        
                         const scriptProcessor = inputCtx.createScriptProcessor(4096, 1, 1);
                         scriptProcessor.onaudioprocess = (e) => {
                             const inputData = e.inputBuffer.getChannelData(0);
                             const pcmBlob = createBlob(inputData);
                             sessionPromise.then(session => session.sendRealtimeInput({ media: pcmBlob }));
                         };
+                        
+                        // Connect chain: Source -> Analyzer -> ScriptProcessor -> Destination
+                        // Note: Analyzer doesn't output audio, it just analyzes. 
+                        // ScriptProcessor needs to be connected to destination to fire events, but we silence output to avoid feedback
                         source.connect(scriptProcessor);
                         scriptProcessor.connect(inputCtx.destination);
+                        
                         sourceNodeRef.current = source;
                         processorRef.current = scriptProcessor;
                     },
                     onmessage: async (msg: LiveServerMessage) => {
+                        // Handle Transcriptions
+                        if (msg.serverContent?.inputTranscription) {
+                            const text = msg.serverContent.inputTranscription.text;
+                            if (text) {
+                                if (transcriptBufferRef.current.lastSource === 'ai') {
+                                    transcriptBufferRef.current.user = '';
+                                    transcriptBufferRef.current.lastSource = 'user';
+                                    setLiveTranscriptSource('user');
+                                }
+                                transcriptBufferRef.current.user += text;
+                                setLiveTranscript(transcriptBufferRef.current.user);
+                                setIsAiSpeaking(false);
+                            }
+                        }
+                        
+                        if (msg.serverContent?.outputTranscription) {
+                             const text = msg.serverContent.outputTranscription.text;
+                             if (text) {
+                                 if (transcriptBufferRef.current.lastSource === 'user') {
+                                     transcriptBufferRef.current.ai = '';
+                                     transcriptBufferRef.current.lastSource = 'ai';
+                                     setLiveTranscriptSource('ai');
+                                 }
+                                 transcriptBufferRef.current.ai += text;
+                                 setLiveTranscript(transcriptBufferRef.current.ai);
+                                 setIsAiSpeaking(true);
+                             }
+                        }
+
+                        // Handle Audio
                         const base64Audio = msg.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                         if (base64Audio && outputAudioCtxRef.current) {
+                            setIsAiSpeaking(true);
                             const ctx = outputAudioCtxRef.current;
                             nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
                             const audioBuffer = await decodeAudioData(decode(base64Audio), ctx, 24000, 1);
                             const source = ctx.createBufferSource();
                             source.buffer = audioBuffer;
                             source.connect(ctx.destination);
-                            source.addEventListener('ended', () => sourcesRef.current.delete(source));
+                            source.addEventListener('ended', () => {
+                                sourcesRef.current.delete(source);
+                                if (sourcesRef.current.size === 0) setIsAiSpeaking(false);
+                            });
                             source.start(nextStartTimeRef.current);
                             nextStartTimeRef.current += audioBuffer.duration;
                             sourcesRef.current.add(source);
@@ -308,10 +512,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 },
                 config: {
                     responseModalities: [Modality.AUDIO],
+                    inputAudioTranscription: {}, // Request input subtitles
+                    outputAudioTranscription: {}, // Request output subtitles
                     speechConfig: {
                         voiceConfig: { prebuiltVoiceConfig: { voiceName: (audioConfig.provider === 'gemini' ? audioConfig.voiceID : 'Puck') || 'Puck' } }
                     },
-                    systemInstruction: `You are ${persona.name}. Role: ${topic.role}. Prompt: ${topic.prompt}.`
+                    systemInstruction: `You are ${persona.name}. Role: ${topic.role}. Prompt: ${topic.prompt}. ${contextInstructions}`
                 }
             });
             liveSessionRef.current = sessionPromise;
@@ -325,7 +531,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     else {
         isSimulatedLiveRef.current = true;
         setLiveStatus("Simulated Live Active");
-        // Start Cycle: Listen -> Text -> LLM -> Text -> TTS -> Listen
         if (isSpeechSupported) {
             recognitionRef.current?.start();
         } else {
@@ -339,10 +544,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setIsLiveMode(false);
     setLiveStatus('');
     isSimulatedLiveRef.current = false;
+    setLiveTranscript('');
+    setIsAiSpeaking(false);
+    setUserMicActive(false);
+    setAnalyser(null);
 
     // Stop Native Live
     inputAudioCtxRef.current?.close();
-    outputAudioCtxRef.current?.close();
+    // outputAudioCtxRef is singleton, do not close, just suspend if needed or leave
     sourceNodeRef.current?.disconnect();
     processorRef.current?.disconnect();
     sourcesRef.current.forEach(s => s.stop());
@@ -365,10 +574,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     const translationInstruction = lang === 'zh' ? 'Chinese translation' : 'Simple English definition';
     
+    // Build context-aware instructions for text mode too
+    let contextContext = "";
+    if (lessonData) {
+        const vocabList = lessonData.vocabulary.map(v => v.en).join(', ');
+        contextContext = `
+        CONTEXT: User is learning "${topic.titleEn}".
+        VOCAB: ${vocabList}.
+        Use these words naturally.
+        `;
+    }
+
     const systemPrompt = `
     IDENTITY: ${persona.name}, Age: ${persona.age}, Gender: ${persona.gender}, From: ${persona.nationality}, Job: ${persona.profession}.
     PERSONALITY: ${persona.personality}.
     SCENARIO: ${topic.prompt}. My Role: ${topic.role}.
+    ${contextContext}
     INSTRUCTION: Act fully as ${persona.name}. Keep responses concise (under 50 words) unless asked otherwise.
     OUTPUT FORMAT: Provide the English response, followed by the ${translationInstruction} in parentheses at the end.
     Example: "That sounds great! (听起来不错！)"
@@ -386,10 +607,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         // Play Audio (Simulated Live or Normal Chat)
         if (isLiveMode && isSimulatedLiveRef.current) {
             setLiveStatus("Speaking...");
+            setLiveTranscript(en); // Show subtitle
+            setLiveTranscriptSource('ai');
             playAudio(en, () => {
                 // When TTS ends, restart listening
                 if (isLiveMode && isSimulatedLiveRef.current) {
                     setLiveStatus("Listening...");
+                    setLiveTranscript(""); 
                     try { recognitionRef.current?.start(); } catch(e){}
                 }
             });
@@ -419,51 +643,99 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   if (isLiveMode) {
       return (
-          <div className="flex flex-col h-screen bg-slate-900 text-white relative overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-b from-indigo-900/40 to-slate-900 z-0"></div>
+          <div className="flex flex-col h-screen bg-slate-900 text-white relative overflow-hidden font-sans">
+              <div className="absolute inset-0 bg-gradient-to-br from-indigo-950 via-slate-900 to-black z-0"></div>
               
               {/* Header */}
-              <div className="relative z-10 flex items-center justify-between p-6">
-                 <button onClick={() => { stopLiveSession(); onBack(); }} className="p-2 bg-white/10 rounded-full backdrop-blur-md"><ArrowLeft className="w-6 h-6" /></button>
-                 <div className="flex items-center gap-2 bg-red-500/20 px-3 py-1 rounded-full border border-red-500/50 animate-pulse">
-                     <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                     <span className="text-xs font-bold tracking-wider text-red-200 uppercase">LIVE ({chatConfig.provider})</span>
+              <div className="relative z-20 flex items-center justify-between p-6">
+                 <button onClick={() => { stopLiveSession(); onBack(); }} className="p-3 bg-white/5 hover:bg-white/10 rounded-full backdrop-blur-md transition-colors border border-white/5">
+                    <ArrowLeft className="w-6 h-6" />
+                 </button>
+                 <div className="flex items-center gap-3 bg-black/30 px-4 py-1.5 rounded-full border border-white/5 backdrop-blur-md">
+                     <div className={`w-2 h-2 rounded-full ${userMicActive || isAiSpeaking ? 'bg-green-500 animate-pulse' : 'bg-slate-500'}`}></div>
+                     <span className="text-xs font-bold tracking-wider text-slate-300 uppercase">
+                        {isAiSpeaking ? 'AI Speaking' : userMicActive ? 'Listening' : 'Live Active'}
+                     </span>
                  </div>
               </div>
 
               {/* Central Visual */}
-              <div className="relative z-10 flex-1 flex flex-col items-center justify-center gap-8">
-                   <div className="relative">
-                       <div className={`absolute inset-0 bg-indigo-500/30 blur-3xl rounded-full ${isThinking || liveStatus==='Speaking...' ? 'animate-pulse scale-150' : 'scale-100'} transition-all duration-700`}></div>
-                       <img 
-                            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${persona.name}&gender=${persona.gender.toLowerCase() === 'male' ? 'male' : 'female'}`} 
-                            className="w-48 h-48 rounded-full border-4 border-white/10 shadow-2xl bg-indigo-900 relative z-10" 
-                            alt="avatar"
-                        />
-                   </div>
-                   
-                   <div className="text-center">
-                       <h2 className="text-3xl font-black mb-2">{persona.name}</h2>
-                       <p className="text-indigo-300 font-medium text-lg min-h-[2rem]">{liveStatus}</p>
-                   </div>
-                   
-                   {(isThinking || liveStatus === 'Speaking...') && (
-                       <div className="flex gap-1 h-8 items-end">
-                            {[1,2,3,4,5].map(i => (
-                                <div key={i} className="w-1 bg-indigo-400 rounded-full animate-bounce" style={{height: `${Math.random()*100}%`, animationDuration: `${0.5 + Math.random()}s`}}></div>
-                            ))}
+              <div className="relative z-10 flex-1 flex flex-col items-center justify-center w-full max-w-xl mx-auto px-6">
+                   {/* Avatar Container */}
+                   <div className="relative mb-12 flex justify-center items-center w-64 h-64">
+                       
+                       {/* Visualizer Canvas Layer */}
+                       <AudioVisualizer isActive={userMicActive && !isAiSpeaking} analyser={analyser} />
+
+                       {/* Speaking Ripple (AI) */}
+                       {isAiSpeaking && (
+                           <>
+                             <div className="absolute inset-0 bg-indigo-500 rounded-full animate-ping opacity-20 duration-1000"></div>
+                             <div className="absolute -inset-4 bg-indigo-500/30 rounded-full animate-pulse blur-xl"></div>
+                           </>
+                       )}
+                       
+                       <div className={`relative z-10 transition-transform duration-700 ${isAiSpeaking ? 'scale-110' : 'scale-100'}`}>
+                           <img 
+                                src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${persona.name}&gender=${persona.gender.toLowerCase() === 'male' ? 'male' : 'female'}`} 
+                                className={`w-40 h-40 rounded-full border-4 shadow-2xl bg-indigo-950 transition-colors ${isAiSpeaking ? 'border-indigo-400 shadow-indigo-500/50' : 'border-slate-700'}`}
+                                alt="avatar"
+                            />
+                            {/* Status Icon Badge */}
+                            <div className="absolute -bottom-2 -right-2 bg-slate-900 p-2 rounded-full border border-slate-700 shadow-lg">
+                                {isAiSpeaking ? <Volume2 className="w-5 h-5 text-indigo-400 animate-pulse" /> : userMicActive ? <Mic className="w-5 h-5 text-green-400" /> : <MoreHorizontal className="w-5 h-5 text-slate-500" />}
+                            </div>
                        </div>
-                   )}
+                   </div>
+
+                   {/* Persona Info */}
+                   <div className="text-center space-y-2 mb-8">
+                       <h2 className="text-3xl font-black tracking-tight">{persona.name}</h2>
+                       <p className="text-indigo-300/80 font-medium text-sm tracking-wide uppercase">{topic.role}</p>
+                   </div>
+                   
+                   {/* Subtitles Area */}
+                   <div className="w-full min-h-[120px] flex items-center justify-center">
+                       {liveTranscript ? (
+                           <div className="flex flex-col items-center gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 max-w-md">
+                               <span className={`text-xs font-bold uppercase tracking-wider ${liveTranscriptSource === 'user' ? 'text-green-400' : 'text-indigo-400'}`}>
+                                   {liveTranscriptSource === 'user' ? 'You' : persona.name}
+                               </span>
+                               <p className="text-xl md:text-2xl font-medium text-center leading-relaxed text-white/90 drop-shadow-md">
+                                   "{liveTranscript}"
+                               </p>
+                           </div>
+                       ) : (
+                           <div className="flex gap-1.5 opacity-30">
+                                <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0s'}}></div>
+                                <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0.15s'}}></div>
+                                <div className="w-2 h-2 bg-white rounded-full animate-bounce" style={{animationDelay: '0.3s'}}></div>
+                           </div>
+                       )}
+                   </div>
               </div>
 
-              {/* Controls */}
-              <div className="relative z-10 p-10 flex justify-center pb-safe">
+              {/* Footer Controls */}
+              <div className="relative z-20 p-8 flex justify-center pb-safe items-center gap-8">
+                  <button 
+                    onClick={() => {
+                         // Toggle Mic Mute logic
+                         setUserMicActive(!userMicActive);
+                    }}
+                    className={`p-4 rounded-full backdrop-blur-md border transition-all ${userMicActive ? 'bg-white/10 border-white/10 text-white' : 'bg-red-500/20 border-red-500/50 text-red-400'}`}
+                  >
+                      {userMicActive ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+                  </button>
+
                   <button 
                     onClick={stopLiveSession}
-                    className="w-16 h-16 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-900/50 hover:bg-red-600 active:scale-95 transition-all"
+                    className="w-20 h-20 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-900/40 hover:bg-red-600 active:scale-95 transition-all ring-4 ring-red-500/20"
                   >
-                      <PhoneOff className="w-8 h-8 fill-current" />
+                      <PhoneOff className="w-9 h-9 fill-current" />
                   </button>
+                  
+                  {/* Placeholder for future features or mute audio out */}
+                  <div className="w-14"></div> 
               </div>
           </div>
       )

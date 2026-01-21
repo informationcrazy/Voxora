@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, MessageSquare, FileText, Book, MoreHorizontal, Settings, Clock, BookOpen, Zap, TrendingUp, ChevronRight, Upload, X, Trash2, AudioWaveform, Sparkles } from 'lucide-react';
+import { Search, MessageSquare, FileText, Book, MoreHorizontal, Settings, Clock, BookOpen, Zap, TrendingUp, ChevronRight, Upload, X, Trash2, AudioWaveform, Sparkles, Globe } from 'lucide-react';
 import { I18N, STATIC_TOPICS, getIcon, PROVIDER_MAP } from './constants';
 import { ViewState, Topic, LessonData, AIConfig, AudioConfig, Persona, Lang, Theme } from './types';
 import { callLLM, parseJSON } from './utils';
@@ -31,6 +31,14 @@ function App() {
   const [textbook, setTextbook] = useState<string>(() => localStorage.getItem('textbook_content') || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Cache State
+  const [lessonCache, setLessonCache] = useState<Record<string, LessonData>>(() => {
+      try {
+        const s = localStorage.getItem('lesson_cache');
+        return s ? JSON.parse(s) : {};
+      } catch (e) { return {}; }
+  });
+
   // Configs
   const [chatConfig, setChatConfig] = useState<AIConfig>(() => ({
     provider: (localStorage.getItem('chat_provider') as any) || 'gemini',
@@ -49,20 +57,48 @@ function App() {
   const [audioConfig, setAudioConfig] = useState<AudioConfig>(() => ({
     provider: (localStorage.getItem('tts_provider') as any) || 'browser',
     voiceID: localStorage.getItem('tts_voice') || '',
-    key: localStorage.getItem('tts_key') || ''
+    key: localStorage.getItem('tts_key') || '',
+    model: localStorage.getItem('tts_model') || '',
+    baseUrl: localStorage.getItem('tts_base') || ''
   }));
 
   const [persona, setPersona] = useState<Persona>(() => {
-    const s = localStorage.getItem('ai_persona');
-    return s ? JSON.parse(s) : {
-        name: "Jenny", age: "24", gender: "Female", nationality: "British",
-        profession: "ESL Tutor", personality: "Friendly & Encouraging", interests: "Travel"
+    const defaultPersona = {
+        name: "Aria", 
+        nameZh: "艾瑞亚 (Aria)",
+        age: "26", 
+        gender: "Female", 
+        nationality: "Cosmopolitan",
+        profession: "Creative Director", 
+        professionZh: "创意总监",
+        personality: "Vibrant, Imaginative, Empathetic", 
+        interests: "Modern Art, Jazz, Deep Conversations",
+        voiceId: "Kore"
     };
+    
+    try {
+        const s = localStorage.getItem('ai_persona');
+        const parsed = s ? JSON.parse(s) : null;
+        
+        // Migration: If the user is still on the old default "Jenny", upgrade them to "Aria"
+        // This prevents the 'white screen' by ensuring data structure is consistent, while respecting custom data.
+        if (parsed && parsed.name === 'Jenny' && parsed.profession === 'ESL Tutor') {
+            return defaultPersona;
+        }
+        
+        // Merge defaultPersona properties to ensure new fields like nameZh/professionZh are present even for existing users
+        return parsed ? { ...defaultPersona, ...parsed, voiceId: parsed.voiceId || 'Kore' } : defaultPersona;
+    } catch (e) {
+        return defaultPersona;
+    }
   });
 
   const [trending, setTrending] = useState<Topic[]>(() => {
-      const s = localStorage.getItem('trending_topics');
-      return s ? JSON.parse(s) : [];
+      try {
+          const s = localStorage.getItem('trending_topics');
+          const data = s ? JSON.parse(s) : [];
+          return Array.isArray(data) ? data : [];
+      } catch (e) { return []; }
   });
 
   // Persistence
@@ -78,6 +114,7 @@ function App() {
 
   useEffect(() => localStorage.setItem('ai_persona', JSON.stringify(persona)), [persona]);
   useEffect(() => localStorage.setItem('textbook_content', textbook), [textbook]);
+  useEffect(() => localStorage.setItem('lesson_cache', JSON.stringify(lessonCache)), [lessonCache]);
   
   useEffect(() => {
      localStorage.setItem('chat_provider', chatConfig.provider);
@@ -91,6 +128,14 @@ function App() {
      localStorage.setItem('content_base', contentConfig.baseUrl);
      localStorage.setItem('content_model', contentConfig.model);
   }, [contentConfig]);
+  
+  useEffect(() => {
+     localStorage.setItem('tts_provider', audioConfig.provider);
+     localStorage.setItem('tts_key', audioConfig.key);
+     localStorage.setItem('tts_voice', audioConfig.voiceID);
+     localStorage.setItem('tts_base', audioConfig.baseUrl || '');
+     localStorage.setItem('tts_model', audioConfig.model || '');
+  }, [audioConfig]);
 
   // Textbook Logic
   const handleImportTextbook = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -120,6 +165,16 @@ function App() {
   // Logic
   const handleGenerateLesson = async (topic: Topic) => {
     setActiveTopic(topic);
+    
+    // Check Cache
+    const cacheKey = `${topic.id}_${lang}`;
+    if (lessonCache[cacheKey]) {
+        console.log("Cache hit for", cacheKey);
+        setLessonData(lessonCache[cacheKey]);
+        setViewState('WARMUP');
+        return;
+    }
+
     setIsGenerating(true);
     
     try {
@@ -150,6 +205,10 @@ function App() {
         if (!data.expressions) data.expressions = [];
         
         setLessonData(data);
+        
+        // Update Cache
+        setLessonCache(prev => ({ ...prev, [cacheKey]: data }));
+
         setViewState('WARMUP');
     } catch (e) {
         alert(`${t('error_fetch')}: ${(e as Error).message}`);
@@ -185,12 +244,54 @@ function App() {
       }
   };
 
-  const renderHome = () => (
+  if (viewState === 'WARMUP' && lessonData && activeTopic) {
+    return <LessonView 
+        topic={activeTopic} 
+        data={lessonData} 
+        persona={persona}
+        lang={lang}
+        audioConfig={audioConfig}
+        t={t}
+        onBack={() => setViewState('HOME')} 
+        onStartChat={() => setViewState('CHAT')}
+    />;
+  }
+
+  if (viewState === 'CHAT' && activeTopic) {
+    return <ChatInterface 
+        topic={activeTopic} 
+        persona={persona} 
+        chatConfig={chatConfig}
+        audioConfig={audioConfig}
+        // If we have lesson data, pass it so AI knows what to teach. 
+        // We only show initial greeting if NO lesson data (i.e. free chat)
+        lessonData={lessonData}
+        initialMessage={lessonData ? undefined : `Hello! I see you want to talk about ${activeTopic.titleEn}.`}
+        lang={lang}
+        t={t}
+        onBack={() => setViewState('HOME')}
+    />;
+  }
+
+  return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-24 transition-colors relative overflow-hidden">
       {/* Background Decorative Blurs */}
       <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-indigo-100/50 to-transparent dark:from-indigo-950/30 pointer-events-none"></div>
       <div className="absolute -top-20 -right-20 w-64 h-64 bg-purple-200 dark:bg-purple-900/20 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
       <div className="absolute top-40 -left-20 w-72 h-72 bg-blue-200 dark:bg-blue-900/20 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
+
+      {showSettings && (
+        <SettingsModal 
+          onClose={() => setShowSettings(false)}
+          lang={lang} setLang={setLang}
+          theme={theme} setTheme={setTheme}
+          chatConfig={chatConfig} setChatConfig={setChatConfig}
+          contentConfig={contentConfig} setContentConfig={setContentConfig}
+          audioConfig={audioConfig} setAudioConfig={setAudioConfig}
+          persona={persona} setPersona={setPersona}
+          t={t}
+        />
+      )}
 
       {/* Header */}
       <div className="pt-8 pb-2 px-6 sticky top-0 z-20 backdrop-blur-sm bg-slate-50/80 dark:bg-slate-950/80 transition-colors">
@@ -218,6 +319,7 @@ function App() {
          {/* Persona Card - Glassmorphism Style */}
          <div className="relative group cursor-pointer" onClick={() => {
                 setActiveTopic({ id: 'free', titleEn: 'Free Talk', titleZh: '自由对话', prompt: 'Casual conversation', role: 'Friend', icon: 'message-circle' });
+                setLessonData(null); // Clear previous lesson data for free talk
                 setViewState('CHAT');
          }}>
             <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 to-violet-600 rounded-[2rem] transform rotate-1 group-hover:rotate-2 transition-transform opacity-70 blur-sm"></div>
@@ -230,9 +332,12 @@ function App() {
                             <Sparkles className="w-3 h-3 text-yellow-300" /> {t('current_partner')}
                         </span>
                     </div>
-                    <h2 className="text-4xl font-black mb-1 tracking-tight">{persona.name}</h2>
+                    <h2 className="text-4xl font-black mb-1 tracking-tight">
+                        {lang === 'zh' ? (persona.nameZh || persona.name) : persona.name}
+                    </h2>
                     <p className="text-sm font-medium text-indigo-100 mb-6 flex items-center gap-2">
-                        {persona.nationality} <span className="w-1 h-1 rounded-full bg-white/40"></span> {persona.profession}
+                        {persona.nationality} <span className="w-1 h-1 rounded-full bg-white/40"></span> 
+                        {lang === 'zh' ? (persona.professionZh || persona.profession) : persona.profession}
                     </p>
                     
                     <button className="bg-white text-indigo-600 text-xs font-bold px-6 py-3 rounded-full shadow-lg shadow-black/10 active:scale-95 transition-transform hover:bg-indigo-50 flex items-center gap-2">
@@ -250,7 +355,7 @@ function App() {
          </div>
          
          {/* Quick Actions */}
-         <div className="grid grid-cols-2 gap-4">
+         <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
             <button className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07)] border border-slate-100 dark:border-slate-800 flex flex-col justify-between h-28 group hover:border-orange-200 dark:hover:border-orange-900 transition-all active:scale-[0.98]">
                 <div className="w-10 h-10 rounded-full bg-orange-50 dark:bg-orange-900/20 flex items-center justify-center text-orange-500 dark:text-orange-400 group-hover:bg-orange-500 group-hover:text-white transition-colors duration-300">
                     <Clock className="w-5 h-5" />
@@ -296,26 +401,49 @@ function App() {
          </div>
 
          {/* Trending Section */}
-         {trending.length > 0 && (
-             <section className="animate-in slide-in-from-top-4 duration-500">
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-2">
-                        <TrendingUp className="w-4 h-4" /> {t('trending_now')}
-                    </h2>
-                    <button onClick={updateTrending} className="text-[10px] font-bold text-slate-400 hover:text-indigo-600 flex items-center gap-1 transition-colors">
-                        {t('refresh')} <Zap className="w-3 h-3" />
-                    </button>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                    {trending.map(t => (
-                        <button key={t.id} onClick={() => handleGenerateLesson(t)} className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-indigo-100 dark:hover:border-indigo-900 transition-all text-left group">
-                            <div className="mb-3 w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-500 dark:text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform">{getIcon(t.icon, "w-4 h-4")}</div>
-                            <div className="text-sm font-bold text-slate-800 dark:text-slate-100 line-clamp-1">{lang==='zh'?t.titleZh:t.titleEn}</div>
+         <section className="animate-in slide-in-from-top-4 duration-500">
+            {trending.length > 0 ? (
+                <>
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+                            <TrendingUp className="w-4 h-4" /> {t('trending_now')}
+                        </h2>
+                        <button onClick={updateTrending} className="text-[10px] font-bold text-slate-400 hover:text-indigo-600 flex items-center gap-1 transition-colors">
+                            {t('refresh')} <Zap className="w-3 h-3" />
                         </button>
-                    ))}
-                </div>
-             </section>
-         )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        {trending.map(t => (
+                            <button key={t.id} onClick={() => handleGenerateLesson(t)} className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-indigo-100 dark:hover:border-indigo-900 transition-all text-left group">
+                                <div className="mb-3 w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-500 dark:text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform">{getIcon(t.icon, "w-4 h-4")}</div>
+                                <div className="text-sm font-bold text-slate-800 dark:text-slate-100 line-clamp-1">{lang==='zh'?t.titleZh:t.titleEn}</div>
+                            </button>
+                        ))}
+                    </div>
+                </>
+            ) : (
+                // Hero Button State when Empty
+                <button onClick={updateTrending} className="w-full relative overflow-hidden rounded-[2rem] shadow-xl group transition-all active:scale-[0.98]">
+                    <div className="absolute inset-0 bg-gradient-to-r from-violet-600 to-indigo-600 group-hover:scale-105 transition-transform duration-700"></div>
+                    <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20"></div>
+                    
+                    <div className="relative p-6 flex items-center justify-between z-10">
+                        <div className="text-left space-y-1">
+                            <h3 className="text-lg font-black text-white tracking-tight flex items-center gap-2">
+                                <Globe className="w-5 h-5 text-indigo-200 animate-pulse" /> 
+                                {t('trending_explore')}
+                            </h3>
+                            <p className="text-xs font-medium text-indigo-100 max-w-[80%] leading-relaxed">
+                                {t('trending_desc')}
+                            </p>
+                        </div>
+                        <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/30 shadow-inner group-hover:rotate-12 transition-transform">
+                            <Zap className="w-6 h-6 fill-white" />
+                        </div>
+                    </div>
+                </button>
+            )}
+         </section>
 
          {/* Static Topics */}
          <div className="space-y-6 pb-6">
@@ -341,63 +469,6 @@ function App() {
             ))}
          </div>
       </div>
-    </div>
-  );
-
-  return (
-    <div className="max-w-md mx-auto bg-white dark:bg-slate-950 min-h-screen shadow-2xl overflow-hidden relative font-sans transition-colors">
-      {viewState === 'HOME' && renderHome()}
-      
-      {viewState === 'WARMUP' && activeTopic && lessonData && (
-        <LessonView 
-            topic={activeTopic} 
-            data={lessonData} 
-            persona={persona}
-            lang={lang}
-            t={t}
-            onBack={() => setViewState('HOME')}
-            onStartChat={() => setViewState('CHAT')}
-        />
-      )}
-
-      {viewState === 'CHAT' && activeTopic && (
-        <ChatInterface 
-            topic={activeTopic}
-            persona={persona}
-            chatConfig={chatConfig}
-            audioConfig={audioConfig}
-            lang={lang}
-            t={t}
-            initialMessage={viewState === 'CHAT' && activeTopic.id !== 'free' ? `Hi! I'm ${persona.name}. Ready to talk about ${activeTopic.titleEn}?` : undefined}
-            onBack={() => setViewState(activeTopic.id === 'free' ? 'HOME' : 'WARMUP')}
-        />
-      )}
-
-      {showSettings && (
-        <SettingsModal 
-            onClose={() => setShowSettings(false)} 
-            lang={lang} setLang={setLang}
-            theme={theme} setTheme={setTheme}
-            chatConfig={chatConfig} setChatConfig={setChatConfig}
-            contentConfig={contentConfig} setContentConfig={setContentConfig}
-            audioConfig={audioConfig} setAudioConfig={setAudioConfig}
-            persona={persona} setPersona={setPersona}
-            t={t}
-        />
-      )}
-
-      {isGenerating && (
-         <div className="fixed inset-0 z-[80] bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex items-center justify-center flex-col">
-            <div className="relative w-20 h-20 mb-6">
-                 <div className="absolute inset-0 bg-indigo-500 rounded-full opacity-20 animate-ping"></div>
-                 <div className="absolute inset-2 bg-indigo-600 rounded-full opacity-30 animate-pulse"></div>
-                 <div className="absolute inset-0 flex items-center justify-center">
-                    <Sparkles className="w-8 h-8 text-indigo-600 dark:text-indigo-400 animate-spin" style={{animationDuration: '3s'}} />
-                 </div>
-            </div>
-            <p className="text-base font-bold text-slate-800 dark:text-white tracking-wide">{t('generating')}</p>
-         </div>
-      )}
     </div>
   );
 }

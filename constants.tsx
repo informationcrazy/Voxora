@@ -31,7 +31,11 @@ export const I18N = {
     role_preset: "角色预设 (Preset)", select_preset: "选择一个有趣的灵魂...",
     check_key: "测试连接", key_valid: "连接畅通", key_invalid: "连接失败",
     start_live: "实时通话", end_live: "结束通话", live_connecting: "建立连接...", live_active: "通话中",
-    tts_custom_url: "TTS API 地址 (可选)", tts_model: "TTS 模型", voice_id: "音色 ID"
+    tts_custom_url: "TTS API 地址 (可选)", tts_model: "TTS 模型", voice_id: "音色 ID",
+    trending_explore: "探索全球热点", trending_desc: "点击即刻生成今日实时话题，与 AI 畅聊世界时事",
+    test_audio: "测试语音", preview_voice: "试听", cache_hit: "已加载缓存内容",
+    translator: "多语言翻译助手", translator_desc: "将文本翻译成多种语言。", source_text: "源文本",
+    target_langs: "目标语言", translate_btn: "开始翻译", translating: "翻译中...", copy: "复制"
   },
   en: {
     app_title: "Voxora", slogan: "Resonate with the World", update: "UPDATE", 
@@ -57,7 +61,11 @@ export const I18N = {
     role_preset: "Role Preset", select_preset: "Select a soul...",
     check_key: "Test Connection", key_valid: "Valid", key_invalid: "Invalid",
     start_live: "Start Live Call", end_live: "End Call", live_connecting: "Connecting...", live_active: "Live Active",
-    tts_custom_url: "TTS API URL (Optional)", tts_model: "TTS Model", voice_id: "Voice ID"
+    tts_custom_url: "TTS API URL (Optional)", tts_model: "TTS Model", voice_id: "Voice ID",
+    trending_explore: "Explore Global Pulse", trending_desc: "Tap to generate topics based on today's live news",
+    test_audio: "Test Audio", preview_voice: "Preview", cache_hit: "Loaded from cache",
+    translator: "Translator", translator_desc: "Translate text into multiple languages.", source_text: "Source Text",
+    target_langs: "Target Languages", translate_btn: "Translate", translating: "Translating...", copy: "Copy"
   }
 };
 
@@ -114,6 +122,43 @@ const PRESETS_DATA = {
   ]
 };
 
+export const PERSONA_FIELDS_PRESETS = {
+  en: {
+    profession: [
+        "Teacher", "Engineer", "Artist", "Doctor", "Chef", "Detective", "Scientist", "Musician", 
+        "Writer", "Student", "Astronaut", "Influencer", "Digital Nomad", "Startup Founder", "Barista",
+        "Psychologist", "Journalist", "Architect", "Gamer", "Fitness Coach"
+    ],
+    personality: [
+        "Friendly", "Strict", "Humorous", "Calm", "Energetic", "Mysterious", "Logical", "Optimistic", 
+        "Sarcastic", "Gentle", "Stoic", "Dramatic", "Empathetic", "Rebellious", "Nerdy",
+        "INFJ", "ENFP", "INTJ", "ENTP", "ISFP"
+    ],
+    interests: [
+        "Travel", "Reading", "Technology", "Cooking", "Music", "History", "Movies", "Sports", 
+        "Nature", "Art", "Photography", "Gaming", "Crypto", "Meditation", "K-Pop", 
+        "Sci-Fi", "Hiking", "Fashion", "Memes", "Philosophy"
+    ]
+  },
+  zh: {
+    profession: [
+        "教师", "工程师", "艺术家", "医生", "厨师", "侦探", "科学家", "音乐家", 
+        "作家", "学生", "宇航员", "网红", "数字游民", "创业者", "咖啡师",
+        "心理咨询师", "记者", "建筑师", "电竞选手", "健身教练"
+    ],
+    personality: [
+        "友好", "严厉", "幽默", "冷静", "充满活力", "神秘", "逻辑强", "乐观", 
+        "毒舌", "温柔", "傲娇", "佛系", "戏精", "共情力强", "叛逆",
+        "INFJ", "ENFP", "INTJ", "ENTP", "ISFP"
+    ],
+    interests: [
+        "旅行", "阅读", "科技", "烹饪", "音乐", "历史", "电影", "运动", 
+        "自然", "艺术", "摄影", "游戏", "撸猫", "加密货币", "冥想",
+        "科幻", "徒步", "时尚", "吃瓜", "哲学"
+    ]
+  }
+};
+
 export const getPresets = (lang: 'zh' | 'en') => PRESETS_DATA[lang];
 
 export const STATIC_TOPICS = [
@@ -152,8 +197,24 @@ export const STATIC_TOPICS = [
 export const RANDOM_NAMES = ["Alex", "Jordan", "Taylor", "Morgan", "Casey", "Riley", "Jamie", "Quinn", "Avery", "Cameron", "Felix", "Luna", "Oliver", "Emma"];
 export const COUNTRIES = ["USA", "UK", "China", "Japan", "France", "Germany", "Australia", "Canada", "India", "Brazil", "Mars", "Asgard", "The Matrix", "Middle-earth"];
 
+export const SUPPORTED_LANGUAGES = [
+  { code: 'zh', name: 'Chinese', flag: '🇨🇳' },
+  { code: 'es', name: 'Spanish', flag: '🇪🇸' },
+  { code: 'fr', name: 'French', flag: '🇫🇷' },
+  { code: 'de', name: 'German', flag: '🇩🇪' },
+  { code: 'it', name: 'Italian', flag: '🇮🇹' },
+  { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
+  { code: 'ko', name: 'Korean', flag: '🇰🇷' },
+  { code: 'ru', name: 'Russian', flag: '🇷🇺' },
+  { code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
+  { code: 'ar', name: 'Arabic', flag: '🇸🇦' },
+];
+
 export const getIcon = (iconName: string, className?: string) => {
   const props = { className: className || "w-5 h-5" };
+  // Safety check: handle undefined or non-string inputs gracefully
+  if (!iconName || typeof iconName !== 'string') return <Globe {...props} />;
+  
   const name = iconName.toLowerCase();
   
   if (name.includes('sparkle')) return <Sparkles {...props} />;
