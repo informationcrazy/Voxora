@@ -6,6 +6,8 @@ export default defineConfig(({ mode }) => {
   // Fix: Property 'cwd' does not exist on type 'Process'
   const env = loadEnv(mode, (process as any).cwd(), '');
   return {
+    // CRITICAL: Use relative base path for embedded deployment (Electron/Tauri/GitHub Pages)
+    base: './',
     plugins: [react()],
     define: {
       // 将构建时的环境变量注入到客户端代码中
