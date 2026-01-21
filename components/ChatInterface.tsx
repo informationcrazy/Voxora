@@ -215,7 +215,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (SR) {
         setIsSpeechSupported(true);
         recognitionRef.current = new SR();
-        recognitionRef.current.lang = 'en-US';
+        // Dynamic Language Setting
+        recognitionRef.current.lang = lang === 'zh' ? 'zh-CN' : 'en-US';
         recognitionRef.current.continuous = false;
         recognitionRef.current.interimResults = true;
         
@@ -257,7 +258,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             setUserMicActive(false);
         };
     }
-  }, []);
+  }, [lang]); // Re-run if language changes
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   useEffect(scrollToBottom, [messages, isThinking]);
