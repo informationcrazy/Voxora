@@ -7,6 +7,7 @@ import { callLLM, parseJSON } from './utils';
 import LessonView from './components/LessonView';
 import ChatInterface from './components/ChatInterface';
 import SettingsModal from './components/SettingsModal';
+import TranslationModal from './components/TranslationModal';
 
 declare const process: { env: { API_KEY: string } };
 
@@ -30,6 +31,7 @@ function App() {
   const [lessonData, setLessonData] = useState<LessonData | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showTranslator, setShowTranslator] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'persona'|'chat'|'content'|'audio'>('persona');
   const [textbook, setTextbook] = useState<string>(() => localStorage.getItem('textbook_content') || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -308,6 +310,14 @@ function App() {
         />
       )}
 
+      {showTranslator && (
+        <TranslationModal 
+          onClose={() => setShowTranslator(false)}
+          config={contentConfig}
+          t={t}
+        />
+      )}
+
       {/* Header */}
       <div className="pt-8 pb-2 px-6 sticky top-0 z-20 backdrop-blur-sm bg-slate-50/80 dark:bg-slate-950/80 transition-colors">
          <div className="flex justify-between items-center mb-6">
@@ -323,6 +333,9 @@ function App() {
                </div>
             </div>
             <div className="flex gap-2">
+                <button onClick={() => setShowTranslator(true)} className="w-10 h-10 bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition-all hover:bg-white dark:hover:bg-slate-800">
+                   <Globe className="w-5 h-5 text-slate-600 dark:text-slate-300" />
+                </button>
                 <button onClick={() => handleOpenSettings('persona')} className="w-10 h-10 bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition-all hover:bg-white dark:hover:bg-slate-800">
                    <Settings className="w-5 h-5 text-slate-600 dark:text-slate-300" />
                 </button>
