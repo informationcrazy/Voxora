@@ -75,6 +75,16 @@ export interface Message {
   textZh: string;
 }
 
+export interface ChatSession {
+  id: string;
+  timestamp: number;
+  topic: Topic;
+  persona: Persona;
+  messages: Message[];
+  lessonData?: LessonData | null;
+  summary?: string; // Short preview text
+}
+
 export type ViewState = 'HOME' | 'WARMUP' | 'CHAT';
 export type Lang = 'zh' | 'en';
 export type Theme = 'light' | 'dark';

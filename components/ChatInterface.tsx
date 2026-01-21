@@ -10,10 +10,11 @@ interface ChatInterfaceProps {
   chatConfig: AIConfig;
   audioConfig: AudioConfig;
   initialMessage?: string;
+  initialHistory?: Message[];
   lessonData?: LessonData | null;
   lang: Lang;
   t: (k: string) => string;
-  onBack: () => void;
+  onBack: (messages: Message[]) => void;
   onOpenSettings: (tab: 'chat' | 'audio') => void;
 }
 
@@ -149,7 +150,7 @@ const AudioVisualizer = ({ isActive, analyser, mode }: { isActive: boolean, anal
 };
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
-  topic, persona, chatConfig, audioConfig, initialMessage, lessonData, lang, t, onBack, onOpenSettings
+  topic, persona, chatConfig, audioConfig, initialMessage, initialHistory, lessonData, lang, t, onBack, onOpenSettings
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -194,7 +195,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const isSimulatedLiveRef = useRef(false);
 
   useEffect(() => {
-    if (initialMessage && !isLiveMode) {
+    // Priority: History > Initial Message
+    if (initialHistory && initialHistory.length > 0) {
+        setMessages(initialHistory);
+    } else if (initialMessage && !isLiveMode) {
         setMessages([{ role: 'ai', textEn: initialMessage, textZh: '' }]);
         playAudio(initialMessage);
     }
@@ -257,6 +261,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   useEffect(() => {
     return () => stopLiveSession();
   }, []);
+
+  const handleBack = () => {
+      // Pass the current messages back to App to save history
+      onBack(messages);
+  };
 
   const stopAudio = () => {
     window.speechSynthesis.cancel();
@@ -668,7 +677,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               
               {/* Header */}
               <div className="relative z-20 flex items-center justify-between p-6">
-                 <button onClick={() => { stopLiveSession(); onBack(); }} className="p-3 bg-white/5 hover:bg-white/10 rounded-full backdrop-blur-md transition-colors border border-white/5">
+                 <button onClick={() => { stopLiveSession(); handleBack(); }} className="p-3 bg-white/5 hover:bg-white/10 rounded-full backdrop-blur-md transition-colors border border-white/5">
                     <ArrowLeft className="w-6 h-6" />
                  </button>
                  <div className="flex items-center gap-3 bg-black/30 px-4 py-1.5 rounded-full border border-white/5 backdrop-blur-md">
@@ -757,7 +766,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   </button>
 
                   <button 
-                    onClick={stopLiveSession}
+                    onClick={() => { stopLiveSession(); handleBack(); }}
                     className="w-20 h-20 bg-red-500 rounded-full flex items-center justify-center shadow-lg shadow-red-900/40 hover:bg-red-600 active:scale-95 transition-all ring-4 ring-red-500/20"
                   >
                       <PhoneOff className="w-9 h-9 fill-current" />
@@ -774,7 +783,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     <div className="flex flex-col h-screen bg-white dark:bg-slate-950 transition-colors">
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800 sticky top-0 bg-white dark:bg-slate-950 z-10">
         <div className="flex items-center gap-2">
-            <button onClick={onBack} className="p-2 -ml-2 text-slate-600 dark:text-slate-300 rounded-full hover:bg-slate-50 dark:hover:bg-slate-800">
+            <button onClick={handleBack} className="p-2 -ml-2 text-slate-600 dark:text-slate-300 rounded-full hover:bg-slate-50 dark:hover:bg-slate-800">
             <ArrowLeft className="w-6 h-6" />
             </button>
             <div>

@@ -6,7 +6,7 @@ import { fetchModels, testConnection, playTTSPreview } from '../utils';
 
 interface SettingsModalProps {
   onClose: () => void;
-  initialTab?: 'persona' | 'chat' | 'content' | 'audio';
+  initialTab?: 'persona' | 'chat' | 'content' | 'audio' | 'translator';
   lang: 'zh' | 'en';
   setLang: (l: 'zh' | 'en') => void;
   theme: Theme;
@@ -15,6 +15,8 @@ interface SettingsModalProps {
   setChatConfig: (c: AIConfig) => void;
   contentConfig: AIConfig;
   setContentConfig: (c: AIConfig) => void;
+  translatorConfig: AIConfig;
+  setTranslatorConfig: (c: AIConfig) => void;
   audioConfig: AudioConfig;
   setAudioConfig: (c: AudioConfig) => void;
   persona: Persona;
@@ -89,7 +91,7 @@ const ConfigForm = ({
   onFetch, 
   t 
 }: { 
-  type: 'chat'|'content', 
+  type: 'chat'|'content'|'translator', 
   config: AIConfig, 
   setConfig: (c: AIConfig) => void,
   models: string[],
@@ -149,7 +151,7 @@ const ConfigForm = ({
   return (
     <div className="space-y-4">
       <div className="bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-4 rounded-xl">
-        <h3 className="text-xs font-black text-slate-50 dark:text-slate-400 uppercase mb-1">{type === 'chat' ? t('engine_chat') : t('engine_content')}</h3>
+        <h3 className="text-xs font-black text-slate-50 dark:text-slate-400 uppercase mb-1">{t('engine_' + type)}</h3>
         <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">{PROVIDER_MAP[config.provider]?.name || config.provider}</p>
       </div>
       
@@ -459,11 +461,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose, initialTab = 'persona', lang, setLang, theme, setTheme,
   chatConfig, setChatConfig,
   contentConfig, setContentConfig,
+  translatorConfig, setTranslatorConfig,
   audioConfig, setAudioConfig,
   persona, setPersona, t
 }) => {
-  const [tab, setTab] = useState<'persona'|'chat'|'content'|'audio'>(initialTab);
-  const [availableModels, setAvailableModels] = useState<{chat: string[], content: string[]}>({ chat: [], content: [] });
+  const [tab, setTab] = useState<'persona'|'chat'|'content'|'audio'|'translator'>(initialTab);
+  const [availableModels, setAvailableModels] = useState<{chat: string[], content: string[], translator: string[]}>({ chat: [], content: [], translator: [] });
   const [loadingModels, setLoadingModels] = useState(false);
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
 
@@ -473,11 +476,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     loadVoices();
   }, []);
 
-  const handleFetchModels = async (type: 'chat' | 'content') => {
-    const config = type === 'chat' ? chatConfig : contentConfig;
+  const handleFetchModels = async (type: 'chat' | 'content' | 'translator') => {
+    let config;
+    if (type === 'chat') config = chatConfig;
+    else if (type === 'content') config = contentConfig;
+    else config = translatorConfig;
+
     setLoadingModels(true);
     try {
-      const list = await fetchModels(config);
+      // Reuse chat logic for text models
+      const list = await fetchModels(config, 'chat');
       setAvailableModels(prev => ({ ...prev, [type]: list }));
     } catch (e) {
       alert((e as Error).message);
@@ -518,7 +526,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       </div>
 
       <div className="flex p-2 gap-2 bg-slate-50 dark:bg-slate-950 mx-6 mt-4 rounded-xl overflow-x-auto no-scrollbar">
-        {['persona', 'chat', 'content', 'audio'].map((tName) => (
+        {['persona', 'chat', 'content', 'translator', 'audio'].map((tName) => (
             <button 
                 key={tName} 
                 onClick={() => setTab(tName as any)} 
@@ -674,6 +682,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             models={availableModels.content}
             loading={loadingModels}
             onFetch={() => handleFetchModels('content')}
+            t={t}
+        />}
+        
+        {tab === 'translator' && <ConfigForm 
+            type="translator" 
+            config={translatorConfig} 
+            setConfig={setTranslatorConfig}
+            models={availableModels.translator}
+            loading={loadingModels}
+            onFetch={() => handleFetchModels('translator')}
             t={t}
         />}
         

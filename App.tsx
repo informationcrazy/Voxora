@@ -1,18 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, MessageSquare, FileText, Book, MoreHorizontal, Settings, Clock, BookOpen, Zap, TrendingUp, ChevronRight, Upload, X, Trash2, AudioWaveform, Sparkles, Globe } from 'lucide-react';
 import { I18N, STATIC_TOPICS, getIcon, PROVIDER_MAP } from './constants';
-import { ViewState, Topic, LessonData, AIConfig, AudioConfig, Persona, Lang, Theme } from './types';
+import { ViewState, Topic, LessonData, AIConfig, AudioConfig, Persona, Lang, Theme, Message, ChatSession } from './types';
 import { callLLM, parseJSON } from './utils';
 
 import LessonView from './components/LessonView';
 import ChatInterface from './components/ChatInterface';
 import SettingsModal from './components/SettingsModal';
 import TranslationModal from './components/TranslationModal';
+import HistoryModal from './components/HistoryModal';
 
 declare const process: { env: { API_KEY: string } };
 
 const Logo = ({ className }: { className?: string }) => (
-  <div className={`relative flex items-center justify-center ${className}`}>
+  <div className={`relative flex items-center justify-center ${className || ''}`}>
      <div className="absolute inset-0 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl rotate-6 opacity-20 blur-sm"></div>
      <div className="relative bg-gradient-to-br from-slate-900 to-slate-800 dark:from-white dark:to-slate-200 text-white dark:text-slate-900 p-2.5 rounded-xl shadow-xl flex items-center justify-center">
         <AudioWaveform className="w-5 h-5" strokeWidth={2.5} />
@@ -32,9 +33,20 @@ function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showTranslator, setShowTranslator] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'persona'|'chat'|'content'|'audio'>('persona');
+  const [showHistory, setShowHistory] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'persona'|'chat'|'content'|'audio'|'translator'>('persona');
   const [textbook, setTextbook] = useState<string>(() => localStorage.getItem('textbook_content') || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // History & Session State
+  const [history, setHistory] = useState<ChatSession[]>(() => {
+      try {
+          const s = localStorage.getItem('chat_history');
+          return s ? JSON.parse(s) : [];
+      } catch (e) { return []; }
+  });
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [initialHistory, setInitialHistory] = useState<Message[]>([]);
 
   // Cache State
   const [lessonCache, setLessonCache] = useState<Record<string, LessonData>>(() => {
@@ -58,6 +70,13 @@ function App() {
     key: localStorage.getItem('content_key') || process.env.API_KEY || '',
     baseUrl: localStorage.getItem('content_base') || 'https://generativelanguage.googleapis.com',
     model: localStorage.getItem('content_model') || 'gemini-3-flash-preview'
+  }));
+  
+  const [translatorConfig, setTranslatorConfig] = useState<AIConfig>(() => ({
+    provider: (localStorage.getItem('translator_provider') as any) || 'gemini',
+    key: localStorage.getItem('translator_key') || process.env.API_KEY || '',
+    baseUrl: localStorage.getItem('translator_base') || 'https://generativelanguage.googleapis.com',
+    model: localStorage.getItem('translator_model') || 'gemini-3-flash-preview'
   }));
 
   const [audioConfig, setAudioConfig] = useState<AudioConfig>(() => ({
@@ -127,6 +146,7 @@ function App() {
   useEffect(() => localStorage.setItem('ai_persona', JSON.stringify(persona)), [persona]);
   useEffect(() => localStorage.setItem('textbook_content', textbook), [textbook]);
   useEffect(() => localStorage.setItem('lesson_cache', JSON.stringify(lessonCache)), [lessonCache]);
+  useEffect(() => localStorage.setItem('chat_history', JSON.stringify(history)), [history]);
   
   useEffect(() => {
      localStorage.setItem('chat_provider', chatConfig.provider);
@@ -140,6 +160,12 @@ function App() {
      localStorage.setItem('content_base', contentConfig.baseUrl);
      localStorage.setItem('content_model', contentConfig.model);
   }, [contentConfig]);
+  useEffect(() => {
+     localStorage.setItem('translator_provider', translatorConfig.provider);
+     localStorage.setItem('translator_key', translatorConfig.key);
+     localStorage.setItem('translator_base', translatorConfig.baseUrl);
+     localStorage.setItem('translator_model', translatorConfig.model);
+  }, [translatorConfig]);
   
   useEffect(() => {
      localStorage.setItem('tts_provider', audioConfig.provider);
@@ -174,7 +200,7 @@ function App() {
       }
   };
 
-  const handleOpenSettings = (tab: 'persona'|'chat'|'content'|'audio' = 'persona') => {
+  const handleOpenSettings = (tab: 'persona'|'chat'|'content'|'audio'|'translator' = 'persona') => {
       setSettingsTab(tab);
       setShowSettings(true);
   };
@@ -182,6 +208,8 @@ function App() {
   // Logic
   const handleGenerateLesson = async (topic: Topic) => {
     setActiveTopic(topic);
+    setCurrentSessionId(null); // New session start
+    setInitialHistory([]);
     
     // Check Cache
     const cacheKey = `${topic.id}_${lang}`;
@@ -261,6 +289,48 @@ function App() {
       }
   };
 
+  const saveHistory = (messages: Message[]) => {
+      if (messages.length === 0) return;
+      if (!activeTopic) return;
+      
+      const timestamp = Date.now();
+      const summary = messages[messages.length - 1].textEn;
+
+      setHistory(prev => {
+          // If we have a current Session ID, update that session
+          if (currentSessionId) {
+              return prev.map(s => s.id === currentSessionId ? { ...s, messages, timestamp, summary } : s).sort((a,b) => b.timestamp - a.timestamp);
+          }
+          // Else create new
+          const newSession: ChatSession = {
+              id: Date.now().toString(),
+              timestamp,
+              topic: activeTopic,
+              persona,
+              messages,
+              lessonData,
+              summary
+          };
+          return [newSession, ...prev].slice(0, 50); // Keep last 50
+      });
+  };
+
+  const handleResumeSession = (session: ChatSession) => {
+      setActiveTopic(session.topic);
+      setPersona(session.persona);
+      setLessonData(session.lessonData || null);
+      setInitialHistory(session.messages);
+      setCurrentSessionId(session.id);
+      setShowHistory(false);
+      setViewState('CHAT');
+  };
+
+  const handleDeleteSession = (id: string) => {
+      if(confirm(t('delete_confirm'))) {
+          setHistory(prev => prev.filter(s => s.id !== id));
+      }
+  };
+
   if (viewState === 'WARMUP' && lessonData && activeTopic) {
     return <LessonView 
         topic={activeTopic} 
@@ -270,7 +340,11 @@ function App() {
         audioConfig={audioConfig}
         t={t}
         onBack={() => setViewState('HOME')} 
-        onStartChat={() => setViewState('CHAT')}
+        onStartChat={() => {
+            setCurrentSessionId(null); // Explicitly new session
+            setInitialHistory([]);
+            setViewState('CHAT');
+        }}
     />;
   }
 
@@ -282,9 +356,13 @@ function App() {
         audioConfig={audioConfig}
         lessonData={lessonData}
         initialMessage={lessonData ? undefined : `Hello! I see you want to talk about ${activeTopic.titleEn}.`}
+        initialHistory={initialHistory}
         lang={lang}
         t={t}
-        onBack={() => setViewState('HOME')}
+        onBack={(msgs) => {
+            saveHistory(msgs);
+            setViewState('HOME');
+        }}
         onOpenSettings={handleOpenSettings}
     />;
   }
@@ -304,6 +382,7 @@ function App() {
           theme={theme} setTheme={setTheme}
           chatConfig={chatConfig} setChatConfig={setChatConfig}
           contentConfig={contentConfig} setContentConfig={setContentConfig}
+          translatorConfig={translatorConfig} setTranslatorConfig={setTranslatorConfig}
           audioConfig={audioConfig} setAudioConfig={setAudioConfig}
           persona={persona} setPersona={setPersona}
           t={t}
@@ -313,9 +392,21 @@ function App() {
       {showTranslator && (
         <TranslationModal 
           onClose={() => setShowTranslator(false)}
-          config={contentConfig}
+          config={translatorConfig}
           t={t}
         />
+      )}
+
+      {showHistory && (
+          <HistoryModal 
+            onClose={() => setShowHistory(false)}
+            history={history}
+            onResume={handleResumeSession}
+            onDelete={handleDeleteSession}
+            onClear={() => { if(confirm(t('delete_confirm'))) setHistory([]); }}
+            t={t}
+            lang={lang}
+          />
       )}
 
       {/* Header */}
@@ -349,6 +440,8 @@ function App() {
                 setActiveTopic({ id: 'free', titleEn: 'Free Talk', titleZh: '自由对话', prompt: 'Casual conversation', role: 'Friend', icon: 'message-circle' });
                 setLessonData(null); // Clear previous lesson data for free talk
                 setViewState('CHAT');
+                setCurrentSessionId(null);
+                setInitialHistory([]);
          }}>
             <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 to-violet-600 rounded-[2rem] transform rotate-1 group-hover:rotate-2 transition-transform opacity-70 blur-sm"></div>
             <div className="relative bg-white/10 dark:bg-black/20 backdrop-filter backdrop-blur-xl border border-white/20 dark:border-white/10 rounded-[2rem] p-6 text-white overflow-hidden shadow-2xl">
@@ -384,13 +477,18 @@ function App() {
          
          {/* Quick Actions */}
          <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
-            <button className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07)] border border-slate-100 dark:border-slate-800 flex flex-col justify-between h-28 group hover:border-orange-200 dark:hover:border-orange-900 transition-all active:scale-[0.98]">
+            <button 
+                onClick={() => setShowHistory(true)}
+                className="bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07)] border border-slate-100 dark:border-slate-800 flex flex-col justify-between h-28 group hover:border-orange-200 dark:hover:border-orange-900 transition-all active:scale-[0.98]"
+            >
                 <div className="w-10 h-10 rounded-full bg-orange-50 dark:bg-orange-900/20 flex items-center justify-center text-orange-500 dark:text-orange-400 group-hover:bg-orange-500 group-hover:text-white transition-colors duration-300">
                     <Clock className="w-5 h-5" />
                 </div>
                 <div className="text-left">
                     <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{t('recent')}</p>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{t('no_history')}</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                        {history.length > 0 ? `${history.length} chats` : t('no_history')}
+                    </p>
                 </div>
             </button>
             

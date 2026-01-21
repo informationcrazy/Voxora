@@ -16,7 +16,7 @@ export const I18N = {
     textbook_active: "教材已激活", remove_textbook: "移除教材",
     trending_now: "全球脉动", lesson_prep: "语境预习", start_chat_with: "开始对话：", 
     vocabulary: "核心词汇", expressions: "地道表达", dialogue: "场景对话", language_skills: "语言技巧",
-    engine_chat: "对话引擎", engine_content: "内容引擎", 
+    engine_chat: "对话引擎", engine_content: "内容引擎", engine_translator: "翻译引擎",
     engine_voice: "语音引擎", provider: "服务商", model: "模型", api_key: "API Key", 
     base_url: "代理地址 (Base URL)", refresh: "刷新", loading: "加载中...", 
     persona_profile: "助手档案", persona_desc: "AI 将完全沉浸于此角色设定。", name: "姓名", 
@@ -26,7 +26,7 @@ export const I18N = {
     input_placeholder: "发送消息给", generating: "灵感生成中...", searching: "搜索热点中...", 
     creating: "编织课程中...", update_success: "话题已更新！", error_fetch: "获取失败", 
     error_tts: "TTS 失败", tab_persona: "👤 角色", tab_chat: "💬 对话", tab_content: "🧠 大脑", 
-    tab_audio: "🔊 语音", random_name: "随机生成", error_missing_key: "请先在设置中填写 API Key",
+    tab_audio: "🔊 语音", tab_translator: "🌐 翻译", random_name: "随机生成", error_missing_key: "请先在设置中填写 API Key",
     mic_start: "点击说话", mic_stop: "点击发送", dark_mode: "深色模式", light_mode: "浅色模式",
     role_preset: "角色预设 (Preset)", select_preset: "选择一个有趣的灵魂...",
     check_key: "测试连接", key_valid: "连接畅通", key_invalid: "连接失败",
@@ -37,7 +37,9 @@ export const I18N = {
     translator: "多语言翻译助手", translator_desc: "将文本翻译成多种语言。", source_text: "源文本",
     target_langs: "目标语言", translate_btn: "开始翻译", translating: "翻译中...", copy: "复制",
     missing_key_confirm: "⚠️ 未配置对话引擎 API Key。\n是否立即前往【设置 -> 对话引擎】进行配置？",
-    missing_tts_confirm: "⚠️ 模拟通话模式下，云端语音引擎 (TTS) 缺少 API Key。\n是否立即前往【设置 -> 语音引擎】进行配置？"
+    missing_tts_confirm: "⚠️ 模拟通话模式下，云端语音引擎 (TTS) 缺少 API Key。\n是否立即前往【设置 -> 语音引擎】进行配置？",
+    history_title: "对话历史", history_clear: "清空", history_resume: "继续对话", history_empty: "暂无历史记录",
+    delete_confirm: "确定删除此记录吗？", delete: "删除"
   },
   en: {
     app_title: "Voxora", slogan: "Resonate with the World", update: "UPDATE", 
@@ -48,7 +50,7 @@ export const I18N = {
     trending_now: "Global Pulse", 
     lesson_prep: "Context Prep", start_chat_with: "Start Chat with", vocabulary: "Vocabulary", 
     expressions: "Expressions", dialogue: "Dialogue", language_skills: "Skills",
-    engine_chat: "Chat Engine", engine_content: "Content Engine", 
+    engine_chat: "Chat Engine", engine_content: "Content Engine", engine_translator: "Translator Engine",
     engine_voice: "Voice Engine", provider: "Provider", model: "Model", api_key: "API Key", 
     base_url: "Base URL", refresh: "Refresh", loading: "Loading...", persona_profile: "Persona Profile", 
     persona_desc: "AI will fully adopt this identity.", name: "Name", age: "Age", gender: "Gender", 
@@ -57,7 +59,7 @@ export const I18N = {
     tts_key_tip: "OpenAI TTS Key (Required)", input_placeholder: "Message", generating: "Generating...", 
     searching: "Searching Trends...", creating: "Crafting Lesson...", update_success: "Topics Updated!", 
     error_fetch: "Fetch Failed", error_tts: "TTS Failed", tab_persona: "👤 Persona", tab_chat: "💬 Chat", 
-    tab_content: "🧠 Brain", tab_audio: "🔊 Voice", random_name: "Randomize", 
+    tab_content: "🧠 Brain", tab_audio: "🔊 Voice", tab_translator: "🌐 Trans", random_name: "Randomize", 
     error_missing_key: "Please set API Key in Settings", mic_start: "Tap to Speak", mic_stop: "Tap to Send",
     dark_mode: "Dark Mode", light_mode: "Light Mode",
     role_preset: "Role Preset", select_preset: "Select a soul...",
@@ -69,7 +71,9 @@ export const I18N = {
     translator: "Translator", translator_desc: "Translate text into multiple languages.", source_text: "Source Text",
     target_langs: "Target Languages", translate_btn: "Translate", translating: "Translating...", copy: "Copy",
     missing_key_confirm: "⚠️ Chat Engine API Key is missing.\nGo to [Settings -> Chat Engine] to configure now?",
-    missing_tts_confirm: "⚠️ Cloud TTS Key is missing for Simulated Live.\nGo to [Settings -> Voice Engine] to configure now?"
+    missing_tts_confirm: "⚠️ Cloud TTS Key is missing for Simulated Live.\nGo to [Settings -> Voice Engine] to configure now?",
+    history_title: "History", history_clear: "Clear All", history_resume: "Resume", history_empty: "No history found",
+    delete_confirm: "Delete this session?", delete: "Delete"
   }
 };
 
