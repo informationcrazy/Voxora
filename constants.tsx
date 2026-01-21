@@ -17,7 +17,8 @@ export const I18N = {
     trending_now: "全球脉动", lesson_prep: "语境预习", start_chat_with: "开始对话：", 
     vocabulary: "核心词汇", expressions: "地道表达", dialogue: "场景对话", language_skills: "语言技巧",
     engine_chat: "对话引擎", engine_content: "内容引擎", engine_translator: "翻译引擎",
-    engine_voice: "语音引擎", provider: "服务商", model: "模型", api_key: "API Key", 
+    engine_voice: "语音引擎", engine_live: "实时引擎", engine_image: "绘图引擎", engine_video: "视频引擎",
+    provider: "服务商", model: "模型", api_key: "API Key", 
     base_url: "代理地址 (Base URL)", refresh: "刷新", loading: "加载中...", 
     persona_profile: "助手档案", persona_desc: "AI 将完全沉浸于此角色设定。", name: "姓名", 
     age: "年龄", gender: "性别", nationality: "国籍", profession: "职业", personality: "性格 (MBTI)", 
@@ -26,8 +27,9 @@ export const I18N = {
     input_placeholder: "发送消息给", generating: "灵感生成中...", searching: "搜索热点中...", 
     creating: "编织课程中...", update_success: "话题已更新！", error_fetch: "获取失败", 
     error_tts: "TTS 失败", tab_persona: "👤 角色", tab_chat: "💬 对话", tab_content: "🧠 大脑", 
-    tab_audio: "🔊 语音", tab_translator: "🌐 翻译", random_name: "随机生成", error_missing_key: "请先在设置中填写 API Key",
-    mic_start: "点击说话", mic_stop: "点击发送", dark_mode: "深色模式", light_mode: "浅色模式",
+    tab_audio: "🔊 语音", tab_translator: "🌐 翻译", tab_live: "📡 实时", tab_image: "🎨 绘图", tab_video: "🎬 视频",
+    random_name: "随机生成", error_missing_key: "请先在设置中填写 API Key",
+    mic_start: "点击说话", mic_stop: "点击发送", dark_mode: "深色模式", light_mode: "浅色模式", system_mode: "跟随系统",
     role_preset: "角色预设 (Preset)", select_preset: "选择一个有趣的灵魂...",
     check_key: "测试连接", key_valid: "连接畅通", key_invalid: "连接失败",
     start_live: "实时通话", end_live: "结束通话", live_connecting: "建立连接...", live_active: "通话中",
@@ -38,6 +40,7 @@ export const I18N = {
     target_langs: "目标语言", translate_btn: "开始翻译", translating: "翻译中...", copy: "复制",
     missing_key_confirm: "⚠️ 未配置对话引擎 API Key。\n是否立即前往【设置 -> 对话引擎】进行配置？",
     missing_tts_confirm: "⚠️ 模拟通话模式下，云端语音引擎 (TTS) 缺少 API Key。\n是否立即前往【设置 -> 语音引擎】进行配置？",
+    missing_live_confirm: "⚠️ 未配置实时引擎 API Key。\n是否立即前往【设置 -> 实时引擎】进行配置？",
     history_title: "对话历史", history_clear: "清空", history_resume: "继续对话", history_empty: "暂无历史记录",
     delete_confirm: "确定删除此记录吗？", delete: "删除"
   },
@@ -51,7 +54,8 @@ export const I18N = {
     lesson_prep: "Context Prep", start_chat_with: "Start Chat with", vocabulary: "Vocabulary", 
     expressions: "Expressions", dialogue: "Dialogue", language_skills: "Skills",
     engine_chat: "Chat Engine", engine_content: "Content Engine", engine_translator: "Translator Engine",
-    engine_voice: "Voice Engine", provider: "Provider", model: "Model", api_key: "API Key", 
+    engine_voice: "Voice Engine", engine_live: "Live Engine", engine_image: "Image Engine", engine_video: "Video Engine",
+    provider: "Provider", model: "Model", api_key: "API Key", 
     base_url: "Base URL", refresh: "Refresh", loading: "Loading...", persona_profile: "Persona Profile", 
     persona_desc: "AI will fully adopt this identity.", name: "Name", age: "Age", gender: "Gender", 
     nationality: "Nationality", profession: "Profession", personality: "Personality", interests: "Interests", 
@@ -59,9 +63,10 @@ export const I18N = {
     tts_key_tip: "OpenAI TTS Key (Required)", input_placeholder: "Message", generating: "Generating...", 
     searching: "Searching Trends...", creating: "Crafting Lesson...", update_success: "Topics Updated!", 
     error_fetch: "Fetch Failed", error_tts: "TTS Failed", tab_persona: "👤 Persona", tab_chat: "💬 Chat", 
-    tab_content: "🧠 Brain", tab_audio: "🔊 Voice", tab_translator: "🌐 Trans", random_name: "Randomize", 
+    tab_content: "🧠 Brain", tab_audio: "🔊 Voice", tab_translator: "🌐 Trans", tab_live: "📡 Live", tab_image: "🎨 Image", tab_video: "🎬 Video",
+    random_name: "Randomize", 
     error_missing_key: "Please set API Key in Settings", mic_start: "Tap to Speak", mic_stop: "Tap to Send",
-    dark_mode: "Dark Mode", light_mode: "Light Mode",
+    dark_mode: "Dark Mode", light_mode: "Light Mode", system_mode: "System",
     role_preset: "Role Preset", select_preset: "Select a soul...",
     check_key: "Test Connection", key_valid: "Valid", key_invalid: "Invalid",
     start_live: "Start Live Call", end_live: "End Call", live_connecting: "Connecting...", live_active: "Live Active",
@@ -72,6 +77,7 @@ export const I18N = {
     target_langs: "Target Languages", translate_btn: "Translate", translating: "Translating...", copy: "Copy",
     missing_key_confirm: "⚠️ Chat Engine API Key is missing.\nGo to [Settings -> Chat Engine] to configure now?",
     missing_tts_confirm: "⚠️ Cloud TTS Key is missing for Simulated Live.\nGo to [Settings -> Voice Engine] to configure now?",
+    missing_live_confirm: "⚠️ Live Engine API Key is missing.\nGo to [Settings -> Live Engine] to configure now?",
     history_title: "History", history_clear: "Clear All", history_resume: "Resume", history_empty: "No history found",
     delete_confirm: "Delete this session?", delete: "Delete"
   }
@@ -86,6 +92,7 @@ export const PROVIDER_MAP = {
 };
 
 export const GEMINI_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Zephyr"];
+export const OPENAI_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
 
 const PRESETS_DATA = {
   en: [

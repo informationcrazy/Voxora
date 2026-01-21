@@ -1,20 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { X, RefreshCw, Dice5, Moon, Sun, UserPlus, Check, AlertCircle, Loader2, CheckCircle2, Volume2, Play } from 'lucide-react';
-import { PROVIDER_MAP, getPresets, COUNTRIES, GEMINI_VOICES, PERSONA_FIELDS_PRESETS } from '../constants';
-import { AIConfig, AudioConfig, Persona, Theme } from '../types';
+import { X, RefreshCw, Dice5, Moon, Sun, UserPlus, Check, AlertCircle, Loader2, CheckCircle2, Volume2, Play, Monitor } from 'lucide-react';
+import { PROVIDER_MAP, getPresets, COUNTRIES, GEMINI_VOICES, OPENAI_VOICES, PERSONA_FIELDS_PRESETS } from '../constants';
+import { AIConfig, AudioConfig, Persona, Theme, ThemeMode } from '../types';
 import { fetchModels, testConnection, playTTSPreview } from '../utils';
 
 interface SettingsModalProps {
   onClose: () => void;
-  initialTab?: 'persona' | 'chat' | 'content' | 'audio' | 'translator';
+  initialTab?: 'persona' | 'chat' | 'live' | 'content' | 'audio' | 'image' | 'video' | 'translator';
   lang: 'zh' | 'en';
   setLang: (l: 'zh' | 'en') => void;
-  theme: Theme;
-  setTheme: (t: Theme) => void;
+  themeMode: ThemeMode;
+  setThemeMode: (t: ThemeMode) => void;
   chatConfig: AIConfig;
   setChatConfig: (c: AIConfig) => void;
+  liveConfig: AIConfig;
+  setLiveConfig: (c: AIConfig) => void;
   contentConfig: AIConfig;
   setContentConfig: (c: AIConfig) => void;
+  imageConfig: AIConfig;
+  setImageConfig: (c: AIConfig) => void;
+  videoConfig: AIConfig;
+  setVideoConfig: (c: AIConfig) => void;
   translatorConfig: AIConfig;
   setTranslatorConfig: (c: AIConfig) => void;
   audioConfig: AudioConfig;
@@ -91,7 +97,7 @@ const ConfigForm = ({
   onFetch, 
   t 
 }: { 
-  type: 'chat'|'content'|'translator', 
+  type: 'chat'|'content'|'live'|'image'|'video'|'translator', 
   config: AIConfig, 
   setConfig: (c: AIConfig) => void,
   models: string[],
@@ -125,13 +131,23 @@ const ConfigForm = ({
       } else {
           savedKey = localStorage.getItem(`kv_${type}_${newProvider}`) || '';
       }
+      
+      let defaultModel = preset ? preset.defaultModel : '';
+      // Special defaults based on type
+      if (newProvider === 'gemini') {
+          if (type === 'live') defaultModel = 'gemini-2.5-flash-native-audio-preview-12-2025';
+          else if (type === 'image') defaultModel = 'gemini-2.5-flash-image';
+          else if (type === 'video') defaultModel = 'veo-3.1-fast-generate-preview';
+      } else if (newProvider === 'openai') {
+          if (type === 'image') defaultModel = 'dall-e-3';
+      }
 
       setConfig({
           ...config, 
           provider: newProvider,
           key: savedKey, 
           baseUrl: preset ? preset.baseUrl : '',
-          model: preset ? preset.defaultModel : ''
+          model: defaultModel
       });
   };
 
@@ -412,13 +428,21 @@ const AudioForm = ({
                           >
                               {GEMINI_VOICES.map(v => <option key={v} value={v}>{v}</option>)}
                           </select>
+                      ) : audioConfig.provider === 'openai' ? (
+                          <select 
+                              value={audioConfig.voiceID} 
+                              onChange={e => setAudioConfig({...audioConfig, voiceID: e.target.value})} 
+                              className="flex-1 p-3 bg-slate-50 dark:bg-slate-800 dark:text-white rounded-xl text-sm border-none"
+                          >
+                              {OPENAI_VOICES.map(v => <option key={v} value={v}>{v}</option>)}
+                          </select>
                       ) : (
                           <input 
                               type="text" 
                               value={audioConfig.voiceID} 
                               onChange={e => setAudioConfig({...audioConfig, voiceID: e.target.value})}
                               className="flex-1 p-3 bg-slate-50 dark:bg-slate-800 dark:text-white rounded-xl text-sm font-mono"
-                              placeholder={audioConfig.provider === 'openai' ? 'alloy, echo, shimmer...' : 'Voice ID'}
+                              placeholder={'Voice ID'}
                           />
                       )}
                       <button onClick={handlePreview} disabled={previewing} className="p-3 bg-indigo-100 text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-300 rounded-xl hover:bg-indigo-200 transition-colors" title={t('preview_voice')}>
@@ -458,15 +482,18 @@ const AudioForm = ({
 // --- Main Modal Component ---
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
-  onClose, initialTab = 'persona', lang, setLang, theme, setTheme,
+  onClose, initialTab = 'persona', lang, setLang, themeMode, setThemeMode,
   chatConfig, setChatConfig,
+  liveConfig, setLiveConfig,
   contentConfig, setContentConfig,
+  imageConfig, setImageConfig,
+  videoConfig, setVideoConfig,
   translatorConfig, setTranslatorConfig,
   audioConfig, setAudioConfig,
   persona, setPersona, t
 }) => {
-  const [tab, setTab] = useState<'persona'|'chat'|'content'|'audio'|'translator'>(initialTab);
-  const [availableModels, setAvailableModels] = useState<{chat: string[], content: string[], translator: string[]}>({ chat: [], content: [], translator: [] });
+  const [tab, setTab] = useState<'persona'|'chat'|'live'|'content'|'image'|'video'|'audio'|'translator'>(initialTab);
+  const [availableModels, setAvailableModels] = useState<{chat: string[], live: string[], content: string[], image: string[], video: string[], translator: string[]}>({ chat: [], live: [], content: [], image: [], video: [], translator: [] });
   const [loadingModels, setLoadingModels] = useState(false);
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
 
@@ -476,10 +503,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     loadVoices();
   }, []);
 
-  const handleFetchModels = async (type: 'chat' | 'content' | 'translator') => {
+  const handleFetchModels = async (type: 'chat' | 'content' | 'live' | 'image' | 'video' | 'translator') => {
     let config;
     if (type === 'chat') config = chatConfig;
+    else if (type === 'live') config = liveConfig;
     else if (type === 'content') config = contentConfig;
+    else if (type === 'image') config = imageConfig;
+    else if (type === 'video') config = videoConfig;
     else config = translatorConfig;
 
     setLoadingModels(true);
@@ -501,6 +531,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     setPersona(random);
   };
 
+  const cycleTheme = () => {
+    if (themeMode === 'system') setThemeMode('light');
+    else if (themeMode === 'light') setThemeMode('dark');
+    else setThemeMode('system');
+  };
+
   return (
     <div className="fixed inset-0 bg-white dark:bg-slate-900 z-[70] flex flex-col animate-in slide-in-from-bottom-10 transition-colors">
       <div className="flex justify-between items-center p-6 border-b border-slate-100 dark:border-slate-800">
@@ -508,11 +544,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="flex gap-3 items-center">
           <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
              <button 
-                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+                onClick={cycleTheme}
                 className="px-2 py-1 text-slate-500 dark:text-slate-300 rounded hover:bg-white dark:hover:bg-slate-700 transition-colors"
-                title={theme === 'dark' ? t('light_mode') : t('dark_mode')}
+                title={themeMode === 'system' ? t('system_mode') : themeMode === 'dark' ? t('dark_mode') : t('light_mode')}
              >
-                {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                {themeMode === 'system' ? <Monitor className="w-4 h-4" /> : themeMode === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
              </button>
           </div>
           <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
@@ -526,7 +562,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
       </div>
 
       <div className="flex p-2 gap-2 bg-slate-50 dark:bg-slate-950 mx-6 mt-4 rounded-xl overflow-x-auto no-scrollbar">
-        {['persona', 'chat', 'content', 'translator', 'audio'].map((tName) => (
+        {['persona', 'chat', 'live', 'content', 'image', 'video', 'translator', 'audio'].map((tName) => (
             <button 
                 key={tName} 
                 onClick={() => setTab(tName as any)} 
@@ -674,6 +710,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             onFetch={() => handleFetchModels('chat')}
             t={t}
         />}
+
+        {tab === 'live' && <ConfigForm 
+            type="live" 
+            config={liveConfig} 
+            setConfig={setLiveConfig} 
+            models={availableModels.live}
+            loading={loadingModels}
+            onFetch={() => handleFetchModels('live')}
+            t={t}
+        />}
         
         {tab === 'content' && <ConfigForm 
             type="content" 
@@ -682,6 +728,26 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             models={availableModels.content}
             loading={loadingModels}
             onFetch={() => handleFetchModels('content')}
+            t={t}
+        />}
+
+        {tab === 'image' && <ConfigForm 
+            type="image" 
+            config={imageConfig} 
+            setConfig={setImageConfig} 
+            models={availableModels.image}
+            loading={loadingModels}
+            onFetch={() => handleFetchModels('image')}
+            t={t}
+        />}
+
+        {tab === 'video' && <ConfigForm 
+            type="video" 
+            config={videoConfig} 
+            setConfig={setVideoConfig} 
+            models={availableModels.video}
+            loading={loadingModels}
+            onFetch={() => handleFetchModels('video')}
             t={t}
         />}
         

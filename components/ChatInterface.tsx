@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Mic, Send, Volume2, Phone, PhoneOff, Activity, MicOff, Sparkles, MoreHorizontal } from 'lucide-react';
+import { ArrowLeft, Mic, Send, Volume2, Phone, PhoneOff, Activity, MicOff, Sparkles, MoreHorizontal, Languages, Loader2 } from 'lucide-react';
 import { Topic, Persona, AIConfig, AudioConfig, Message, Lang, LessonData } from '../types';
 import { callLLM, getAudioContext } from '../utils';
 import { GoogleGenAI, Modality, Blob, LiveServerMessage } from '@google/genai';
@@ -8,14 +8,16 @@ interface ChatInterfaceProps {
   topic: Topic;
   persona: Persona;
   chatConfig: AIConfig;
+  liveConfig: AIConfig;
   audioConfig: AudioConfig;
+  translatorConfig: AIConfig;
   initialMessage?: string;
   initialHistory?: Message[];
   lessonData?: LessonData | null;
   lang: Lang;
   t: (k: string) => string;
   onBack: (messages: Message[]) => void;
-  onOpenSettings: (tab: 'chat' | 'audio') => void;
+  onOpenSettings: (tab: 'chat' | 'audio' | 'live') => void;
 }
 
 // Helpers for Live API
@@ -150,7 +152,7 @@ const AudioVisualizer = ({ isActive, analyser, mode }: { isActive: boolean, anal
 };
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ 
-  topic, persona, chatConfig, audioConfig, initialMessage, initialHistory, lessonData, lang, t, onBack, onOpenSettings
+  topic, persona, chatConfig, liveConfig, audioConfig, translatorConfig, initialMessage, initialHistory, lessonData, lang, t, onBack, onOpenSettings
 }) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -166,6 +168,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isAiSpeaking, setIsAiSpeaking] = useState(false);
   const [userMicActive, setUserMicActive] = useState(false);
   
+  // Translation loading state per message index
+  const [translatingIdx, setTranslatingIdx] = useState<number | null>(null);
+
   // Audio Analysis
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null); // Input
   const [outputAnalyser, setOutputAnalyser] = useState<AnalyserNode | null>(null); // Output
@@ -182,7 +187,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const audioRef = useRef<HTMLAudioElement>(new Audio());
   
   // Live API Refs
-  const liveSessionRef = useRef<any>(null);
+  const liveSessionRef = useRef<Promise<any> | null>(null);
   const inputAudioCtxRef = useRef<AudioContext|null>(null);
   const outputAudioCtxRef = useRef<AudioContext|null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode|null>(null);
@@ -200,7 +205,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         setMessages(initialHistory);
     } else if (initialMessage && !isLiveMode) {
         setMessages([{ role: 'ai', textEn: initialMessage, textZh: '' }]);
-        playAudio(initialMessage);
+        // NOTE: Autoplay removed for initial message to respect browser policies and UX
     }
   }, []);
 
@@ -295,7 +300,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         const apiKey = audioConfig.key || chatConfig.key;
         if (!apiKey) {
             setIsAiSpeaking(false);
-            return alert(t('error_missing_key'));
+            // Don't alert here to avoid spamming user if they haven't set it up
+            console.warn("Missing TTS Key");
+            return;
         }
 
         try {
@@ -348,7 +355,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         const apiKey = audioConfig.key;
         if (!apiKey && audioConfig.provider === 'openai') {
             setIsAiSpeaking(false);
-            return alert(t('tts_key_tip'));
+            return;
         }
 
         try {
@@ -386,10 +393,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const startLiveSession = async () => {
-    const apiKey = chatConfig.key?.trim();
+    // Check key in the liveConfig
+    const apiKey = liveConfig.key?.trim();
     if (!apiKey) {
-         if (confirm(t('missing_key_confirm'))) {
-             onOpenSettings('chat');
+         if (confirm(t('missing_live_confirm'))) {
+             onOpenSettings('live');
          }
          return;
     }
@@ -402,10 +410,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     outAna.connect(outputCtx.destination);
     setOutputAnalyserSafe(outAna);
 
-    const isGemini = chatConfig.provider === 'gemini';
+    const isGeminiLive = liveConfig.provider === 'gemini';
 
     // Specific Simulated Live Check (OpenAI/Others)
-    if (!isGemini) {
+    if (!isGeminiLive) {
         if (!isSpeechSupported) {
             alert(lang === 'zh' ? "您的浏览器不支持语音识别，无法使用模拟通话。" : "Speech recognition is not supported in this browser.");
             setOutputAnalyserSafe(null);
@@ -431,16 +439,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     if (lessonData) {
         const vocabList = lessonData.vocabulary.map(v => v.en).join(', ');
         const exprList = lessonData.expressions.map(e => e.en).join(', ');
+        const dialogueText = lessonData.dialogue.map(d => `${d.role}: ${d.en}`).join('\n');
+        
         contextInstructions = `
         CONTEXT: The user is learning about "${topic.titleEn}".
         TARGET VOCABULARY: ${vocabList}.
         TARGET EXPRESSIONS: ${exprList}.
-        INSTRUCTION: Try to naturally use the target vocabulary and expressions in your responses. Correct the user gently if they misuse them.
+        REFERENCE DIALOGUE (Use this as a guide for tone and content flow, but react naturally):
+        ${dialogueText}
+        INSTRUCTION: Act as the ${topic.role}. Try to naturally use the target vocabulary and expressions. Correct the user gently if they misuse them.
         `;
     }
 
     // MODE A: Gemini Native Live
-    if (chatConfig.provider === 'gemini') {
+    if (isGeminiLive) {
         isSimulatedLiveRef.current = false;
 
         try {
@@ -457,8 +469,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             analyzerNode.fftSize = 64;
             setAnalyser(analyzerNode);
 
+            // Use the model selected in settings, or fallback to the safe default
+            const modelToUse = liveConfig.model || 'gemini-2.5-flash-native-audio-preview-12-2025';
+
             const sessionPromise = ai.live.connect({
-                model: 'gemini-2.5-flash-native-audio-preview-12-2025',
+                model: modelToUse,
                 callbacks: {
                     onopen: () => {
                         setLiveStatus(t('live_active'));
@@ -572,7 +587,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         isSimulatedLiveRef.current = true;
         setLiveStatus("Simulated Live Active");
         if (isSpeechSupported) {
-            recognitionRef.current?.start();
+            try {
+                recognitionRef.current?.start();
+            } catch (e) {
+                // Ignore if already started
+            }
         }
     }
   };
@@ -587,7 +606,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setAnalyser(null);
     setOutputAnalyserSafe(null);
 
-    // Stop Native Live
+    // Clean up Native Live Session
+    if (liveSessionRef.current) {
+        liveSessionRef.current.then(session => {
+            try { session.close(); } catch(e) { console.error("Error closing session", e); }
+        });
+        liveSessionRef.current = null;
+    }
+
+    // Stop Native Live Audio Contexts
     inputAudioCtxRef.current?.close();
     sourceNodeRef.current?.disconnect();
     processorRef.current?.disconnect();
@@ -595,7 +622,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     sourcesRef.current.clear();
 
     // Stop Simulated Live
-    recognitionRef.current?.stop();
+    try { recognitionRef.current?.stop(); } catch(e) {}
     stopAudio();
   };
 
@@ -614,7 +641,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     let contextContext = "";
     if (lessonData) {
         const vocabList = lessonData.vocabulary.map(v => v.en).join(', ');
-        contextContext = `CONTEXT: User is learning "${topic.titleEn}". VOCAB: ${vocabList}. Use these words naturally.`;
+        const dialogueText = lessonData.dialogue.map(d => `${d.role}: ${d.en}`).join('\n');
+        contextContext = `
+        CONTEXT: User is learning "${topic.titleEn}". 
+        VOCAB: ${vocabList}. 
+        REFERENCE DIALOGUE:\n${dialogueText}\n
+        Use the dialogue as a guide but be natural.`;
     }
 
     const systemPrompt = `
@@ -628,7 +660,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     `;
 
     try {
-        const responseText = await callLLM(chatConfig, userText, systemPrompt);
+        // Use liveConfig if in Simulated Live Mode, otherwise use chatConfig
+        const configToUse = (isLiveMode && isSimulatedLiveRef.current) ? liveConfig : chatConfig;
+
+        const responseText = await callLLM(configToUse, userText, systemPrompt);
         
         const match = responseText.match(/^(.*)\s*[\(（]([\s\S]*)[\)）]$/s);
         const en = match ? match[1].trim() : responseText;
@@ -661,12 +696,41 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   };
 
+  const handleTranslateMessage = async (index: number) => {
+      const msg = messages[index];
+      setTranslatingIdx(index);
+      
+      try {
+          const targetLang = lang === 'zh' ? 'Chinese' : 'English';
+          const hasChineseChar = /[\u4e00-\u9fa5]/.test(msg.textEn);
+          const actualTarget = hasChineseChar ? 'English' : (lang === 'zh' ? 'Chinese' : 'English');
+          
+          const prompt = `Translate the following text to ${actualTarget}: "${msg.textEn}". Return only the translated text.`;
+          
+          // Smart Fallback: If translator key is missing, try using chat key
+          let configToUse = translatorConfig;
+          if (!configToUse.key && chatConfig.key) {
+               configToUse = { ...chatConfig }; // Use chat config if translator is not set
+          }
+
+          const translatedText = await callLLM(configToUse, prompt);
+          
+          setMessages(prev => prev.map((m, i) => 
+              i === index ? { ...m, textZh: translatedText } : m
+          ));
+      } catch (e) {
+          alert(`Translation failed: ${(e as Error).message}`);
+      } finally {
+          setTranslatingIdx(null);
+      }
+  };
+
   const toggleListening = () => {
     if (isListening) {
-      recognitionRef.current?.stop();
+      try { recognitionRef.current?.stop(); } catch(e){}
     } else {
       stopAudio();
-      recognitionRef.current?.start();
+      try { recognitionRef.current?.start(); } catch(e){}
     }
   };
 
@@ -804,7 +868,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 dark:bg-slate-900 pb-24">
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] p-3.5 rounded-2xl text-sm relative shadow-sm ${
+            <div className={`max-w-[85%] p-3.5 rounded-2xl text-sm relative shadow-sm group ${
               msg.role === 'user' 
                 ? 'bg-indigo-600 text-white rounded-tr-none' 
                 : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-tl-none border border-slate-200 dark:border-slate-700'
@@ -815,6 +879,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                       {msg.textZh}
                   </div>
               )}
+              
+              {/* Translate Button - Positioned absolutely bottom right inside bubble */}
+              <button 
+                  onClick={() => handleTranslateMessage(idx)}
+                  className={`absolute -bottom-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center shadow-sm border transition-all scale-0 group-hover:scale-100 hover:bg-indigo-100 dark:hover:bg-slate-700 ${
+                      translatingIdx === idx ? 'scale-100 bg-white dark:bg-slate-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600'
+                  }`}
+                  title="Translate"
+              >
+                  {translatingIdx === idx ? (
+                      <Loader2 className="w-3 h-3 text-indigo-500 animate-spin" />
+                  ) : (
+                      <Languages className="w-3 h-3 text-slate-400 dark:text-slate-500" />
+                  )}
+              </button>
+
               {msg.role === 'ai' && (
                  <button onClick={() => playAudio(msg.textEn)} className="absolute -right-8 top-1 p-2 text-slate-300 dark:text-slate-600 hover:text-indigo-600 dark:hover:text-indigo-400">
                    <Volume2 className="w-4 h-4" />
@@ -823,8 +903,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
           </div>
         ))}
+        {/* New Artistic Thinking Indicator */}
         {isThinking && (
-          <div className="text-xs font-bold text-slate-400 dark:text-slate-500 px-4 animate-pulse">{persona.name} is typing...</div>
+          <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2">
+            <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl rounded-tl-none border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-1.5">
+               <span className="text-xs font-bold text-slate-400 dark:text-slate-500 mr-2">{persona.name}:</span>
+               <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+               <div className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+               <div className="w-1.5 h-1.5 bg-pink-400 rounded-full animate-bounce"></div>
+            </div>
+          </div>
         )}
         <div ref={messagesEndRef} />
       </div>

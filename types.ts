@@ -88,3 +88,4 @@ export interface ChatSession {
 export type ViewState = 'HOME' | 'WARMUP' | 'CHAT';
 export type Lang = 'zh' | 'en';
 export type Theme = 'light' | 'dark';
+export type ThemeMode = 'light' | 'dark' | 'system';

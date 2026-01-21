@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, MessageSquare, FileText, Book, MoreHorizontal, Settings, Clock, BookOpen, Zap, TrendingUp, ChevronRight, Upload, X, Trash2, AudioWaveform, Sparkles, Globe } from 'lucide-react';
+import { Search, MessageSquare, FileText, Book, MoreHorizontal, Settings, Clock, BookOpen, Zap, TrendingUp, ChevronRight, Upload, X, Trash2, AudioWaveform, Sparkles, Globe, Loader2 } from 'lucide-react';
 import { I18N, STATIC_TOPICS, getIcon, PROVIDER_MAP } from './constants';
-import { ViewState, Topic, LessonData, AIConfig, AudioConfig, Persona, Lang, Theme, Message, ChatSession } from './types';
+import { ViewState, Topic, LessonData, AIConfig, AudioConfig, Persona, Lang, Theme, ThemeMode, Message, ChatSession } from './types';
 import { callLLM, parseJSON } from './utils';
 
 import LessonView from './components/LessonView';
@@ -21,20 +21,95 @@ const Logo = ({ className }: { className?: string }) => (
   </div>
 );
 
+// Artistic Loader Component - Compact & Dynamic
+const AuroraLoader = ({ text }: { text: string }) => (
+  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-white/60 dark:bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
+      <div className="relative flex flex-col items-center">
+          {/* Animated Kinetic Core */}
+          <div className="relative w-24 h-24 flex items-center justify-center mb-6">
+              {/* Spinning Ring 1 */}
+              <div className="absolute inset-0 rounded-full border-[3px] border-transparent border-t-indigo-500 border-r-purple-500 animate-spin-slow opacity-90 filter drop-shadow-sm"></div>
+              {/* Spinning Ring 2 (Counter) */}
+              <div className="absolute inset-2 rounded-full border-[3px] border-transparent border-b-pink-500 border-l-cyan-500 animate-spin-reverse-slower opacity-90 filter drop-shadow-sm"></div>
+              
+              {/* Central Floating Icon Container */}
+              <div className="absolute inset-0 flex items-center justify-center animate-float">
+                  <div className="bg-gradient-to-br from-white to-slate-100 dark:from-slate-800 dark:to-slate-900 p-3.5 rounded-full shadow-[0_8px_16px_-4px_rgba(0,0,0,0.1)] border border-white/50 dark:border-white/10 ring-1 ring-indigo-500/10">
+                    <Sparkles className="w-6 h-6 text-indigo-600 dark:text-indigo-400 fill-indigo-100 dark:fill-indigo-900/30" />
+                  </div>
+              </div>
+              
+              {/* Orbiting Particles */}
+              <div className="absolute inset-0 animate-spin-slow">
+                  <div className="absolute -top-1 left-1/2 w-2.5 h-2.5 bg-indigo-500 rounded-full blur-[0.5px] shadow-[0_0_10px_rgba(99,102,241,0.8)]"></div>
+              </div>
+          </div>
+
+          {/* Artistic Typography */}
+          <div className="text-center relative z-10">
+              <h3 className="text-2xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 dark:from-indigo-400 dark:via-purple-400 dark:to-pink-400 animate-shimmer bg-[length:200%_auto]">
+                {text}
+              </h3>
+              <div className="flex items-center justify-center gap-1 mt-3">
+                  <div className="h-0.5 w-6 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-indigo-500 w-1/2 animate-[shimmer_1s_infinite]"></div>
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 tracking-[0.3em] uppercase">
+                    Thinking
+                  </p>
+                  <div className="h-0.5 w-6 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-indigo-500 w-1/2 animate-[shimmer_1s_infinite_reverse]"></div>
+                  </div>
+              </div>
+          </div>
+      </div>
+  </div>
+);
+
 function App() {
   // State
   const [lang, setLang] = useState<Lang>(() => (localStorage.getItem('app_lang') as Lang) || 'zh');
-  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('app_theme') as Theme) || 'light');
   const t = (k: string) => I18N[lang][k as keyof typeof I18N['zh']] || k;
+
+  // Theme Logic
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => (localStorage.getItem('app_theme_mode') as ThemeMode) || 'system');
+  
+  // Helper to determine system preference
+  const getSystemTheme = (): Theme => window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  const [systemTheme, setSystemTheme] = useState<Theme>(getSystemTheme());
+
+  // Listen for system changes
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent) => setSystemTheme(e.matches ? 'dark' : 'light');
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  // Calculate Active Theme
+  const activeTheme = themeMode === 'system' ? systemTheme : themeMode;
+
+  // Apply Theme
+  useEffect(() => {
+    const root = document.documentElement;
+    if (activeTheme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    localStorage.setItem('app_theme_mode', themeMode);
+  }, [activeTheme, themeMode]);
 
   const [viewState, setViewState] = useState<ViewState>('HOME');
   const [activeTopic, setActiveTopic] = useState<Topic | null>(null);
   const [lessonData, setLessonData] = useState<LessonData | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [loadingText, setLoadingText] = useState(''); // New state for custom loading text
+  
   const [showSettings, setShowSettings] = useState(false);
   const [showTranslator, setShowTranslator] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'persona'|'chat'|'content'|'audio'|'translator'>('persona');
+  const [settingsTab, setSettingsTab] = useState<'persona'|'chat'|'live'|'content'|'audio'|'image'|'video'|'translator'>('persona');
   const [textbook, setTextbook] = useState<string>(() => localStorage.getItem('textbook_content') || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,6 +140,13 @@ function App() {
     model: localStorage.getItem('chat_model') || 'gemini-3-flash-preview'
   }));
 
+  const [liveConfig, setLiveConfig] = useState<AIConfig>(() => ({
+    provider: (localStorage.getItem('live_provider') as any) || 'gemini',
+    key: localStorage.getItem('live_key') || process.env.API_KEY || '',
+    baseUrl: localStorage.getItem('live_base') || 'https://generativelanguage.googleapis.com',
+    model: localStorage.getItem('live_model') || 'gemini-2.5-flash-native-audio-preview-12-2025'
+  }));
+
   const [contentConfig, setContentConfig] = useState<AIConfig>(() => ({
     provider: (localStorage.getItem('content_provider') as any) || 'gemini',
     key: localStorage.getItem('content_key') || process.env.API_KEY || '',
@@ -72,6 +154,20 @@ function App() {
     model: localStorage.getItem('content_model') || 'gemini-3-flash-preview'
   }));
   
+  const [imageConfig, setImageConfig] = useState<AIConfig>(() => ({
+    provider: (localStorage.getItem('image_provider') as any) || 'gemini',
+    key: localStorage.getItem('image_key') || process.env.API_KEY || '',
+    baseUrl: localStorage.getItem('image_base') || 'https://generativelanguage.googleapis.com',
+    model: localStorage.getItem('image_model') || 'gemini-2.5-flash-image'
+  }));
+
+  const [videoConfig, setVideoConfig] = useState<AIConfig>(() => ({
+    provider: (localStorage.getItem('video_provider') as any) || 'gemini',
+    key: localStorage.getItem('video_key') || process.env.API_KEY || '',
+    baseUrl: localStorage.getItem('video_base') || 'https://generativelanguage.googleapis.com',
+    model: localStorage.getItem('video_model') || 'veo-3.1-fast-generate-preview'
+  }));
+
   const [translatorConfig, setTranslatorConfig] = useState<AIConfig>(() => ({
     provider: (localStorage.getItem('translator_provider') as any) || 'gemini',
     key: localStorage.getItem('translator_key') || process.env.API_KEY || '',
@@ -134,15 +230,6 @@ function App() {
 
   // Persistence
   useEffect(() => localStorage.setItem('app_lang', lang), [lang]);
-  useEffect(() => {
-    localStorage.setItem('app_theme', theme);
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [theme]);
-
   useEffect(() => localStorage.setItem('ai_persona', JSON.stringify(persona)), [persona]);
   useEffect(() => localStorage.setItem('textbook_content', textbook), [textbook]);
   useEffect(() => localStorage.setItem('lesson_cache', JSON.stringify(lessonCache)), [lessonCache]);
@@ -155,11 +242,29 @@ function App() {
      localStorage.setItem('chat_model', chatConfig.model);
   }, [chatConfig]);
   useEffect(() => {
+     localStorage.setItem('live_provider', liveConfig.provider);
+     localStorage.setItem('live_key', liveConfig.key);
+     localStorage.setItem('live_base', liveConfig.baseUrl);
+     localStorage.setItem('live_model', liveConfig.model);
+  }, [liveConfig]);
+  useEffect(() => {
      localStorage.setItem('content_provider', contentConfig.provider);
      localStorage.setItem('content_key', contentConfig.key);
      localStorage.setItem('content_base', contentConfig.baseUrl);
      localStorage.setItem('content_model', contentConfig.model);
   }, [contentConfig]);
+  useEffect(() => {
+     localStorage.setItem('image_provider', imageConfig.provider);
+     localStorage.setItem('image_key', imageConfig.key);
+     localStorage.setItem('image_base', imageConfig.baseUrl);
+     localStorage.setItem('image_model', imageConfig.model);
+  }, [imageConfig]);
+  useEffect(() => {
+     localStorage.setItem('video_provider', videoConfig.provider);
+     localStorage.setItem('video_key', videoConfig.key);
+     localStorage.setItem('video_base', videoConfig.baseUrl);
+     localStorage.setItem('video_model', videoConfig.model);
+  }, [videoConfig]);
   useEffect(() => {
      localStorage.setItem('translator_provider', translatorConfig.provider);
      localStorage.setItem('translator_key', translatorConfig.key);
@@ -200,7 +305,7 @@ function App() {
       }
   };
 
-  const handleOpenSettings = (tab: 'persona'|'chat'|'content'|'audio'|'translator' = 'persona') => {
+  const handleOpenSettings = (tab: 'persona'|'chat'|'live'|'content'|'audio'|'image'|'video'|'translator' = 'persona') => {
       setSettingsTab(tab);
       setShowSettings(true);
   };
@@ -221,6 +326,7 @@ function App() {
     }
 
     setIsGenerating(true);
+    setLoadingText(t('creating')); // Set context-specific loading text
     
     try {
         const explainLang = lang === 'zh' ? 'Chinese' : 'English definition';
@@ -264,6 +370,8 @@ function App() {
 
   const updateTrending = async () => {
       setIsGenerating(true);
+      setLoadingText(t('searching')); // Set context-specific loading text
+      
       try {
           // Provide strictly formatted example in prompt to ensure validity
           const prompt = `Generate 4 trending discussion topics for ESL students. Date: ${new Date().toDateString()}.
@@ -278,7 +386,7 @@ function App() {
           if (Array.isArray(data)) {
               setTrending(data);
               localStorage.setItem('trending_topics', JSON.stringify(data));
-              alert(t('update_success'));
+              // Removed simple alert, the visual feedback is enough
           } else {
               throw new Error("Invalid Format");
           }
@@ -331,21 +439,41 @@ function App() {
       }
   };
 
+  // Determine initial message for Active Start
+  const getInitialMessage = () => {
+      if (!activeTopic) return undefined;
+      
+      // If we have lesson data, try to use the first line of dialogue if it belongs to the AI role
+      if (lessonData && lessonData.dialogue && lessonData.dialogue.length > 0) {
+          const firstLine = lessonData.dialogue[0];
+          // Simple check: if the role matches the topic role or is generic 'A'/'Teacher' etc
+          // But safer is just to have a standard opening based on the topic.
+          return `Let's practice the conversation about "${activeTopic.titleEn}". I'll start:\n\n"${firstLine.en}"`;
+      }
+      
+      return `Hello! I'm ready to talk about "${activeTopic.titleEn}". Shall we begin?`;
+  };
+
   if (viewState === 'WARMUP' && lessonData && activeTopic) {
-    return <LessonView 
-        topic={activeTopic} 
-        data={lessonData} 
-        persona={persona}
-        lang={lang}
-        audioConfig={audioConfig}
-        t={t}
-        onBack={() => setViewState('HOME')} 
-        onStartChat={() => {
-            setCurrentSessionId(null); // Explicitly new session
-            setInitialHistory([]);
-            setViewState('CHAT');
-        }}
-    />;
+    return (
+        <>
+            {isGenerating && <AuroraLoader text={loadingText} />}
+            <LessonView 
+                topic={activeTopic} 
+                data={lessonData} 
+                persona={persona}
+                lang={lang}
+                audioConfig={audioConfig}
+                t={t}
+                onBack={() => setViewState('HOME')} 
+                onStartChat={() => {
+                    setCurrentSessionId(null); // Explicitly new session
+                    setInitialHistory([]);
+                    setViewState('CHAT');
+                }}
+            />
+        </>
+    );
   }
 
   if (viewState === 'CHAT' && activeTopic) {
@@ -353,9 +481,11 @@ function App() {
         topic={activeTopic} 
         persona={persona} 
         chatConfig={chatConfig}
+        liveConfig={liveConfig}
         audioConfig={audioConfig}
+        translatorConfig={translatorConfig}
         lessonData={lessonData}
-        initialMessage={lessonData ? undefined : `Hello! I see you want to talk about ${activeTopic.titleEn}.`}
+        initialMessage={getInitialMessage()}
         initialHistory={initialHistory}
         lang={lang}
         t={t}
@@ -369,6 +499,9 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 pb-24 transition-colors relative overflow-hidden">
+      {/* Loading Overlay */}
+      {isGenerating && <AuroraLoader text={loadingText} />}
+
       {/* Background Decorative Blurs */}
       <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-indigo-100/50 to-transparent dark:from-indigo-950/30 pointer-events-none"></div>
       <div className="absolute -top-20 -right-20 w-64 h-64 bg-purple-200 dark:bg-purple-900/20 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
@@ -379,9 +512,12 @@ function App() {
           onClose={() => setShowSettings(false)}
           initialTab={settingsTab}
           lang={lang} setLang={setLang}
-          theme={theme} setTheme={setTheme}
+          themeMode={themeMode} setThemeMode={setThemeMode}
           chatConfig={chatConfig} setChatConfig={setChatConfig}
+          liveConfig={liveConfig} setLiveConfig={setLiveConfig}
           contentConfig={contentConfig} setContentConfig={setContentConfig}
+          imageConfig={imageConfig} setImageConfig={setImageConfig}
+          videoConfig={videoConfig} setVideoConfig={setVideoConfig}
           translatorConfig={translatorConfig} setTranslatorConfig={setTranslatorConfig}
           audioConfig={audioConfig} setAudioConfig={setAudioConfig}
           persona={persona} setPersona={setPersona}
