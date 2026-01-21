@@ -6,6 +6,7 @@ import { fetchModels, testConnection, playTTSPreview } from '../utils';
 
 interface SettingsModalProps {
   onClose: () => void;
+  initialTab?: 'persona' | 'chat' | 'content' | 'audio';
   lang: 'zh' | 'en';
   setLang: (l: 'zh' | 'en') => void;
   theme: Theme;
@@ -148,7 +149,7 @@ const ConfigForm = ({
   return (
     <div className="space-y-4">
       <div className="bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-4 rounded-xl">
-        <h3 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase mb-1">{type === 'chat' ? t('engine_chat') : t('engine_content')}</h3>
+        <h3 className="text-xs font-black text-slate-50 dark:text-slate-400 uppercase mb-1">{type === 'chat' ? t('engine_chat') : t('engine_content')}</h3>
         <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">{PROVIDER_MAP[config.provider]?.name || config.provider}</p>
       </div>
       
@@ -270,7 +271,7 @@ const AudioForm = ({
           ...audioConfig, 
           provider: newProvider, 
           key: savedKey, 
-          model: savedModel,
+          model: savedModel, 
           baseUrl: savedBaseUrl
       });
       setStatus('idle');
@@ -321,7 +322,7 @@ const AudioForm = ({
   return (
       <div className="space-y-4">
           <div className="bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-4 rounded-xl">
-              <h3 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase mb-1">{t('engine_voice')}</h3>
+              <h3 className="text-xs font-black text-slate-50 dark:text-slate-400 uppercase mb-1">{t('engine_voice')}</h3>
           </div>
           <div className="grid grid-cols-2 gap-3">
           {['browser', 'openai', 'gemini', 'custom'].map(p => {
@@ -455,13 +456,13 @@ const AudioForm = ({
 // --- Main Modal Component ---
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
-  onClose, lang, setLang, theme, setTheme,
+  onClose, initialTab = 'persona', lang, setLang, theme, setTheme,
   chatConfig, setChatConfig,
   contentConfig, setContentConfig,
   audioConfig, setAudioConfig,
   persona, setPersona, t
 }) => {
-  const [tab, setTab] = useState<'persona'|'chat'|'content'|'audio'>('persona');
+  const [tab, setTab] = useState<'persona'|'chat'|'content'|'audio'>(initialTab);
   const [availableModels, setAvailableModels] = useState<{chat: string[], content: string[]}>({ chat: [], content: [] });
   const [loadingModels, setLoadingModels] = useState(false);
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -532,8 +533,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         {tab === 'persona' && (
             <div className="space-y-4">
                 <div className="bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 p-4 rounded-xl border border-blue-100 dark:border-blue-900/50 flex gap-4 items-center">
+                    {/* Updated avatar preview to micah */}
                     <img 
-                        src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${persona.name}&gender=${persona.gender.toLowerCase() === 'male' ? 'male' : 'female'}`} 
+                        src={`https://api.dicebear.com/9.x/micah/svg?seed=${persona.name}&mouth=smile,pucker,laughing&baseColor=f9c9b6,ac6651`} 
                         className="w-16 h-16 rounded-full border-2 border-white dark:border-slate-700 shadow-sm bg-white dark:bg-slate-700" 
                         alt="avatar"
                     />

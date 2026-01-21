@@ -35,7 +35,9 @@ export const I18N = {
     trending_explore: "探索全球热点", trending_desc: "点击即刻生成今日实时话题，与 AI 畅聊世界时事",
     test_audio: "测试语音", preview_voice: "试听", cache_hit: "已加载缓存内容",
     translator: "多语言翻译助手", translator_desc: "将文本翻译成多种语言。", source_text: "源文本",
-    target_langs: "目标语言", translate_btn: "开始翻译", translating: "翻译中...", copy: "复制"
+    target_langs: "目标语言", translate_btn: "开始翻译", translating: "翻译中...", copy: "复制",
+    missing_key_confirm: "⚠️ 未配置对话引擎 API Key。\n是否立即前往【设置 -> 对话引擎】进行配置？",
+    missing_tts_confirm: "⚠️ 模拟通话模式下，云端语音引擎 (TTS) 缺少 API Key。\n是否立即前往【设置 -> 语音引擎】进行配置？"
   },
   en: {
     app_title: "Voxora", slogan: "Resonate with the World", update: "UPDATE", 
@@ -65,7 +67,9 @@ export const I18N = {
     trending_explore: "Explore Global Pulse", trending_desc: "Tap to generate topics based on today's live news",
     test_audio: "Test Audio", preview_voice: "Preview", cache_hit: "Loaded from cache",
     translator: "Translator", translator_desc: "Translate text into multiple languages.", source_text: "Source Text",
-    target_langs: "Target Languages", translate_btn: "Translate", translating: "Translating...", copy: "Copy"
+    target_langs: "Target Languages", translate_btn: "Translate", translating: "Translating...", copy: "Copy",
+    missing_key_confirm: "⚠️ Chat Engine API Key is missing.\nGo to [Settings -> Chat Engine] to configure now?",
+    missing_tts_confirm: "⚠️ Cloud TTS Key is missing for Simulated Live.\nGo to [Settings -> Voice Engine] to configure now?"
   }
 };
 

@@ -8,6 +8,8 @@ import LessonView from './components/LessonView';
 import ChatInterface from './components/ChatInterface';
 import SettingsModal from './components/SettingsModal';
 
+declare const process: { env: { API_KEY: string } };
+
 const Logo = ({ className }: { className?: string }) => (
   <div className={`relative flex items-center justify-center ${className}`}>
      <div className="absolute inset-0 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl rotate-6 opacity-20 blur-sm"></div>
@@ -28,6 +30,7 @@ function App() {
   const [lessonData, setLessonData] = useState<LessonData | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'persona'|'chat'|'content'|'audio'>('persona');
   const [textbook, setTextbook] = useState<string>(() => localStorage.getItem('textbook_content') || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -39,17 +42,18 @@ function App() {
       } catch (e) { return {}; }
   });
 
-  // Configs
+  // Configs - Initialize from LocalStorage OR Environment Variable
   const [chatConfig, setChatConfig] = useState<AIConfig>(() => ({
     provider: (localStorage.getItem('chat_provider') as any) || 'gemini',
-    key: localStorage.getItem('chat_key') || '',
+    // Priority: User's saved key -> Env Var -> Empty
+    key: localStorage.getItem('chat_key') || process.env.API_KEY || '',
     baseUrl: localStorage.getItem('chat_base') || 'https://generativelanguage.googleapis.com',
     model: localStorage.getItem('chat_model') || 'gemini-3-flash-preview'
   }));
 
   const [contentConfig, setContentConfig] = useState<AIConfig>(() => ({
     provider: (localStorage.getItem('content_provider') as any) || 'gemini',
-    key: localStorage.getItem('content_key') || '',
+    key: localStorage.getItem('content_key') || process.env.API_KEY || '',
     baseUrl: localStorage.getItem('content_base') || 'https://generativelanguage.googleapis.com',
     model: localStorage.getItem('content_model') || 'gemini-3-flash-preview'
   }));
@@ -57,7 +61,7 @@ function App() {
   const [audioConfig, setAudioConfig] = useState<AudioConfig>(() => ({
     provider: (localStorage.getItem('tts_provider') as any) || 'browser',
     voiceID: localStorage.getItem('tts_voice') || '',
-    key: localStorage.getItem('tts_key') || '',
+    key: localStorage.getItem('tts_key') || process.env.API_KEY || '',
     model: localStorage.getItem('tts_model') || '',
     baseUrl: localStorage.getItem('tts_base') || ''
   }));
@@ -80,13 +84,10 @@ function App() {
         const s = localStorage.getItem('ai_persona');
         const parsed = s ? JSON.parse(s) : null;
         
-        // Migration: If the user is still on the old default "Jenny", upgrade them to "Aria"
-        // This prevents the 'white screen' by ensuring data structure is consistent, while respecting custom data.
+        // Migration logic
         if (parsed && parsed.name === 'Jenny' && parsed.profession === 'ESL Tutor') {
             return defaultPersona;
         }
-        
-        // Merge defaultPersona properties to ensure new fields like nameZh/professionZh are present even for existing users
         return parsed ? { ...defaultPersona, ...parsed, voiceId: parsed.voiceId || 'Kore' } : defaultPersona;
     } catch (e) {
         return defaultPersona;
@@ -100,6 +101,15 @@ function App() {
           return Array.isArray(data) ? data : [];
       } catch (e) { return []; }
   });
+
+  // Check for Missing Key on Startup
+  useEffect(() => {
+    // If no key is found in storage OR env vars for the main chat engine, prompt the user
+    if (!chatConfig.key) {
+        setSettingsTab('chat');
+        setShowSettings(true);
+    }
+  }, []);
 
   // Persistence
   useEffect(() => localStorage.setItem('app_lang', lang), [lang]);
@@ -160,6 +170,11 @@ function App() {
       if (confirm(t('remove_textbook') + '?')) {
           setTextbook('');
       }
+  };
+
+  const handleOpenSettings = (tab: 'persona'|'chat'|'content'|'audio' = 'persona') => {
+      setSettingsTab(tab);
+      setShowSettings(true);
   };
 
   // Logic
@@ -263,13 +278,12 @@ function App() {
         persona={persona} 
         chatConfig={chatConfig}
         audioConfig={audioConfig}
-        // If we have lesson data, pass it so AI knows what to teach. 
-        // We only show initial greeting if NO lesson data (i.e. free chat)
         lessonData={lessonData}
         initialMessage={lessonData ? undefined : `Hello! I see you want to talk about ${activeTopic.titleEn}.`}
         lang={lang}
         t={t}
         onBack={() => setViewState('HOME')}
+        onOpenSettings={handleOpenSettings}
     />;
   }
 
@@ -283,6 +297,7 @@ function App() {
       {showSettings && (
         <SettingsModal 
           onClose={() => setShowSettings(false)}
+          initialTab={settingsTab}
           lang={lang} setLang={setLang}
           theme={theme} setTheme={setTheme}
           chatConfig={chatConfig} setChatConfig={setChatConfig}
@@ -308,7 +323,7 @@ function App() {
                </div>
             </div>
             <div className="flex gap-2">
-                <button onClick={() => setShowSettings(true)} className="w-10 h-10 bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition-all hover:bg-white dark:hover:bg-slate-800">
+                <button onClick={() => handleOpenSettings('persona')} className="w-10 h-10 bg-white/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-full flex items-center justify-center shadow-sm active:scale-95 transition-all hover:bg-white dark:hover:bg-slate-800">
                    <Settings className="w-5 h-5 text-slate-600 dark:text-slate-300" />
                 </button>
             </div>
@@ -345,9 +360,9 @@ function App() {
                     </button>
                 </div>
 
-                {/* Avatar */}
+                {/* Avatar - Updated to 'micah' style for a creative look */}
                 <img 
-                    src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${persona.name}&gender=${persona.gender.toLowerCase() === 'male' ? 'male' : 'female'}`} 
+                    src={`https://api.dicebear.com/9.x/micah/svg?seed=${persona.name}&mouth=smile,pucker,laughing&baseColor=f9c9b6,ac6651`} 
                     className="absolute -bottom-6 -right-6 w-48 h-48 drop-shadow-2xl filter brightness-110 contrast-125 transform group-hover:scale-105 transition-transform duration-500" 
                     alt="persona"
                 />
