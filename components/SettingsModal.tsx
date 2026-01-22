@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, RefreshCw, Dice5, Moon, Sun, UserPlus, Check, AlertCircle, Loader2, CheckCircle2, Volume2, Play, Monitor } from 'lucide-react';
+import { X, RefreshCw, Dice5, Moon, Sun, UserPlus, Check, AlertCircle, Loader2, CheckCircle2, Volume2, Play, Monitor, ExternalLink, KeyRound } from 'lucide-react';
 import { PROVIDER_MAP, getPresets, COUNTRIES, GEMINI_VOICES, OPENAI_VOICES, PERSONA_FIELDS_PRESETS } from '../constants';
 import { AIConfig, AudioConfig, Persona, Theme, ThemeMode } from '../types';
 import { fetchModels, testConnection, playTTSPreview } from '../utils';
@@ -163,12 +163,30 @@ const ConfigForm = ({
           localStorage.setItem(`kv_${type}_${config.provider}`, val);
       }
   };
+
+  // Helper link for getting keys
+  const getKeyLink = () => {
+      switch(config.provider) {
+          case 'gemini': return 'https://aistudio.google.com/app/apikey';
+          case 'openai': return 'https://platform.openai.com/api-keys';
+          case 'deepseek': return 'https://platform.deepseek.com/api_keys';
+          case 'zhipu': return 'https://open.bigmodel.cn/usercenter/apikeys';
+          default: return '';
+      }
+  };
   
   return (
     <div className="space-y-4">
-      <div className="bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-4 rounded-xl">
-        <h3 className="text-xs font-black text-slate-50 dark:text-slate-400 uppercase mb-1">{t('engine_' + type)}</h3>
-        <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">{PROVIDER_MAP[config.provider]?.name || config.provider}</p>
+      <div className="bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 p-4 rounded-xl flex items-center justify-between">
+        <div>
+            <h3 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase mb-1">{t('engine_' + type)}</h3>
+            <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">{PROVIDER_MAP[config.provider]?.name || config.provider}</p>
+        </div>
+        {!config.key && (
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 text-[10px] font-bold rounded-lg border border-amber-100 dark:border-amber-900/50 animate-pulse">
+                <KeyRound className="w-3 h-3" /> Required
+            </div>
+        )}
       </div>
       
       <select 
@@ -184,7 +202,7 @@ const ConfigForm = ({
             type="password" 
             value={config.key} 
             onChange={handleKeyChange}
-            className={`w-full p-3 pr-24 bg-slate-50 dark:bg-slate-800 dark:text-white rounded-xl text-sm font-mono placeholder:text-slate-400 dark:placeholder:text-slate-500 transition-all border ${status === 'error' ? 'border-red-500' : status === 'valid' ? 'border-green-500' : 'border-transparent'}`} 
+            className={`w-full p-3 pr-24 bg-slate-50 dark:bg-slate-800 dark:text-white rounded-xl text-sm font-mono placeholder:text-slate-400 dark:placeholder:text-slate-500 transition-all border ${status === 'error' ? 'border-red-500' : status === 'valid' ? 'border-green-500' : !config.key ? 'border-amber-400 ring-2 ring-amber-400/20' : 'border-transparent'}`} 
             placeholder={t('api_key')} 
           />
           <button 
@@ -198,6 +216,20 @@ const ConfigForm = ({
               {status === 'idle' && t('check_key')}
           </button>
       </div>
+
+      {/* Get Key Helper Link */}
+      {getKeyLink() && (
+          <div className="flex justify-end">
+              <a 
+                href={getKeyLink()} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-[10px] font-bold text-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1 hover:underline"
+              >
+                  Get {PROVIDER_MAP[config.provider]?.name} API Key <ExternalLink className="w-3 h-3" />
+              </a>
+          </div>
+      )}
 
       {config.provider !== 'gemini' && (
         <input 

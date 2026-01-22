@@ -6,6 +6,9 @@
     <title>Voxora</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
+      // Polyfill for global to prevent issues with some libraries in browser
+      window.global = window;
+
       tailwind.config = {
         darkMode: 'class',
         theme: {
